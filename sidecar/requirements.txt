@@ -1,0 +1,56 @@
+# =============================================================================
+# RVC sidecar 依赖
+#
+# Python 版本：必须 3.10 或 3.11（fairseq 在 3.12+ 上无法编译）
+#
+# 安装命令（GPU，CUDA 12.1）：
+#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
+# 安装命令（CPU-only，仅调试）：
+#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+# =============================================================================
+
+# ---------- Web 服务 ----------
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+websockets==13.1
+pydantic==2.9.2
+
+# ---------- 推理核心 ----------
+torch==2.4.1
+torchaudio==2.4.1
+numpy==1.26.4
+scipy==1.13.1
+
+# ---------- 音频处理 ----------
+librosa==0.10.2
+soundfile==0.12.1
+resampy==0.4.3
+numba==0.60.0  # librosa / resampy 的可选加速
+
+# ---------- F0 算法 ----------
+torchcrepe==0.0.23
+torchfcpe==0.0.4
+
+# ---------- HuBERT / ContentVec ----------
+# fairseq 是个老牌但维护停滞的库，仅在 Python 3.10/3.11 上能装。
+# 如果安装失败，可改用 pip install fairseq --no-build-isolation 或参考 docs/MODELS.md。
+fairseq==0.12.2
+einops==0.8.0
+
+# ---------- 检索增强 ----------
+faiss-cpu==1.9.0  # 实时变声场景下 CPU 版足够
+
+# ---------- 离线人声分离（Demucs v4） ----------
+# 用于训练数据预处理：从混音中分离 vocals + accompaniment
+# Demucs 由 Meta 开源（MIT），支持 CPU/CUDA/MPS
+demucs==4.0.1
+
+# ---------- 工具 ----------
+loguru==0.7.2
+typer==0.13.0
+tqdm==4.67.0
+PyYAML==6.0.2
+requests==2.32.3
+
+# ---------- 打包 ----------
+pyinstaller==6.11.1

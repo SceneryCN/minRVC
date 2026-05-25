@@ -1,0 +1,222 @@
+/* DSP 面板：分块行 + 滑条 + 说话指示灯 */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  transition: border-color var(--transition-base);
+}
+
+.row:hover {
+  border-color: var(--color-border-hover);
+}
+
+.rowHead {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.rowIcon {
+  width: 22px;
+  height: 22px;
+  color: var(--color-accent);
+  stroke-width: 2;
+}
+
+.rowTitle {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.rowDesc {
+  margin: 2px 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.controlRow {
+  display: grid;
+  grid-template-columns: 110px 1fr 64px;
+  align-items: center;
+  gap: var(--space-3);
+  transition: opacity var(--transition-fast);
+}
+
+.controlRow[data-disabled] {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.value {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-mono);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--color-accent) 0%,
+    var(--color-cyan) var(--fill, 50%),
+    var(--color-bg-elevated) var(--fill, 50%)
+  );
+  outline: none;
+  cursor: pointer;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-text-primary);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+  cursor: grab;
+  transition: transform var(--transition-fast);
+}
+
+.slider::-webkit-slider-thumb:active {
+  transform: scale(1.15);
+  cursor: grabbing;
+}
+
+/* ─── Toggle ─── */
+
+.toggle {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+  cursor: pointer;
+  padding: 0;
+  transition:
+    background-color var(--transition-base),
+    border-color var(--transition-base);
+}
+
+.toggle[data-on] {
+  background: linear-gradient(135deg, var(--color-accent), var(--color-cyan));
+  border-color: transparent;
+}
+
+.toggleThumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform var(--transition-base);
+  will-change: transform;
+}
+
+.toggle[data-on] .toggleThumb {
+  transform: translateX(18px);
+}
+
+/* ─── Status row（VAD 实时） ─── */
+
+.statusRow {
+  display: grid;
+  grid-template-columns: auto auto 1fr 64px;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--color-border);
+}
+
+.lamp {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  transition: background-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.lamp[data-on] {
+  background: var(--color-success);
+  box-shadow: 0 0 12px var(--color-success);
+  animation: lamp-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes lamp-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.65; transform: scale(0.9); }
+}
+
+.statusText {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.probBar {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-bg-base);
+  overflow: hidden;
+}
+
+.probFill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--color-accent), var(--color-cyan));
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 80ms linear;
+  will-change: transform;
+}
+
+/* ─── Hint ─── */
+
+.hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  padding: var(--space-3);
+  background: var(--color-accent-soft);
+  border: 1px dashed color-mix(in srgb, var(--color-accent) 30%, transparent);
+  border-radius: var(--radius-md);
+}
+
+.hint svg {
+  width: 14px;
+  height: 14px;
+  color: var(--color-accent);
+  stroke-width: 2.2;
+}

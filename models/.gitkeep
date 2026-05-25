@@ -1,0 +1,7 @@
+# 此目录在运行时由 sidecar 自动维护：
+#   ~/AppData/Local/rvc-voice-changer/models/
+# 仓库内此目录仅用于本地共享调试模型，可放入：
+#   hubert/hubert_base.pt
+#   rmvpe/rmvpe.pt
+#   voices/<id>/<id>.pth
+#   voices/<id>/<id>.index

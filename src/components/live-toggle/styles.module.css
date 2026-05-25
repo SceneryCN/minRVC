@@ -1,0 +1,120 @@
+.button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  min-width: 200px;
+  height: 56px;
+  padding: 0 var(--space-6);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  background: linear-gradient(135deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 65%, var(--color-cyan)));
+  color: white;
+  box-shadow:
+    0 4px 16px var(--color-accent-glow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition:
+    transform var(--transition-fast),
+    box-shadow var(--transition-base),
+    opacity var(--transition-base);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* 高光扫过 */
+.button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.18) 50%,
+    transparent 70%
+  );
+  transform: translateX(-100%);
+  transition: transform var(--transition-slow);
+  pointer-events: none;
+}
+
+.button:hover::before {
+  transform: translateX(100%);
+}
+
+.button:hover:not([disabled]) {
+  transform: translateY(-1px);
+  box-shadow:
+    0 8px 24px var(--color-accent-glow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.button:active:not([disabled]) {
+  transform: translateY(0);
+}
+
+.button[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.button[data-running='true'] {
+  background: linear-gradient(135deg, var(--color-danger), #c93251);
+  box-shadow:
+    0 4px 16px color-mix(in srgb, var(--color-danger) 50%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.button[data-running='true']:hover:not([disabled]) {
+  box-shadow:
+    0 8px 24px color-mix(in srgb, var(--color-danger) 60%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  z-index: 1;
+}
+
+.icon svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.5;
+  fill: currentColor;
+}
+
+.iconSpin svg {
+  fill: none;
+  animation: liveSpin 0.9s linear infinite;
+}
+
+@keyframes liveSpin {
+  to { transform: rotate(360deg); }
+}
+
+.button[data-running='true'] .icon::after {
+  content: '';
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  animation: ring-pulse 1.4s ease-out infinite;
+}
+
+@keyframes ring-pulse {
+  0% { transform: scale(0.7); opacity: 0.6; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+
+.label {
+  position: relative;
+  z-index: 1;
+}

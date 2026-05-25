@@ -1,0 +1,123 @@
+name: Release
+
+# 触发：手动（workflow_dispatch）或推 vX.Y.Z 标签
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # —— Windows x64：主战场，产出 .msi + .exe(NSIS) ——
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: msi,nsis
+            artifact: rvc-voice-changer-windows-x64
+          # —— macOS Apple Silicon：本地开发出活儿用 ——
+          - platform: macos-14
+            target: aarch64-apple-darwin
+            bundles: dmg,app
+            artifact: rvc-voice-changer-macos-arm64
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 20 + pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup Rust + target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: sidecar/requirements.txt
+
+      # macOS 打包 .dmg 需要 create-dmg；Linux 打包 .deb 需要 dpkg；都已在 runner 自带
+      - name: Linux only — install Tauri OS deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install JS deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Python sidecar deps (CPU torch)
+        # 出包用 CPU 版 torch，小很多。需要 GPU 时让用户本地装 CUDA torch
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r sidecar/requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+        shell: bash
+
+      - name: Download RVC vendor + base models
+        run: python -m scripts.setup_rvc
+        working-directory: sidecar
+
+      - name: Build sidecar (PyInstaller)
+        run: pnpm sidecar:build
+
+      # 把 master 渐变图标拉出来（CI runner 没有 PIL，先快速装）
+      - name: Generate placeholder icons
+        run: |
+          pip install Pillow
+          python scripts/generate_icons.py
+        shell: bash
+
+      - name: Build Tauri bundle
+        run: pnpm tauri build --config src-tauri/tauri.bundle.conf.json --bundles ${{ matrix.bundles }} --target ${{ matrix.target }}
+        env:
+          # 没签名证书时关闭 macOS 公证 / Windows authenticode；release 前再补
+          TAURI_SIGNING_PRIVATE_KEY: ''
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
+            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app
+          if-no-files-found: warn
+          retention-days: 14
+
+  # 当推了 v* 标签时，把 artifact 收集到一个 GitHub Release
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          generate_release_notes: true
+          draft: true

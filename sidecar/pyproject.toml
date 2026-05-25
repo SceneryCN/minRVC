@@ -1,0 +1,26 @@
+[project]
+name = "rvc-engine"
+version = "0.1.0"
+description = "RVC 实时变声器 sidecar 推理服务"
+readme = "README.md"
+requires-python = ">=3.10,<3.12"
+authors = [{ name = "norman" }]
+license = { text = "MIT" }
+dependencies = [
+    # 见 requirements.txt
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["rvc_engine"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]

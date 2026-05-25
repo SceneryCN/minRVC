@@ -1,0 +1,69 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build output
+dist
+dist-ssr
+*.local
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+src-tauri/Cargo.lock
+src-tauri/binaries/
+
+# Python sidecar
+sidecar/.venv/
+sidecar/__pycache__/
+sidecar/**/__pycache__/
+sidecar/build/
+sidecar/dist/
+sidecar/*.spec
+sidecar/.pytest_cache/
+sidecar/*.egg-info/
+
+# RVC Models (大文件，单独管理)
+models/hubert/*.pt
+models/hubert/*.onnx
+models/rmvpe/*.pt
+models/rmvpe/*.onnx
+models/voices/*/*.pth
+models/voices/*/*.index
+models/voices/*/*.onnx
+!models/**/.gitkeep
+!models/manifest.json
+
+# Test recordings
+*.wav
+*.mp3
+*.flac
+test_audio/
+
+# Misc
+.env
+.env.local
+.env.*.local
+*.pem
+.cache

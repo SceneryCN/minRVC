@@ -1,0 +1,78 @@
+[package]
+name = "rvc-voice-changer"
+version = "0.1.0"
+description = "傻瓜式实时 RVC 变声器"
+authors = ["norman"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "rvc_voice_changer_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0.3", features = [] }
+
+[dependencies]
+# Tauri
+tauri = { version = "2.1.1", features = [] }
+tauri-plugin-shell = "2.0.2"
+tauri-plugin-dialog = "2.0.3"
+tauri-plugin-fs = "2.0.3"
+
+# 序列化 / 异步
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.41", features = ["full"] }
+async-trait = "0.1"
+futures-util = "0.3"
+
+# 错误处理 / 日志
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# 音频
+cpal = "0.15"
+ringbuf = "0.4"
+
+# 实时 DSP：降噪 / VAD
+# nnnoiseless 是 RNNoise 的纯 Rust 移植；FRAME_SIZE = 480 (10ms @ 48kHz)
+nnnoiseless = "0.5"
+# silero-vad-rust 内部依赖 ort 2.0.0-rc.10。我们必须把整个工作区的 ort 版本
+# 锁到与之相同（cargo 默认会拉最新 rc.12，导致 API 不匹配编译失败）。
+# 显式声明 ort + features，再让 cargo 把 features 合并 + 自动下载二进制。
+silero-vad-rust = "6.2"
+ort = { version = "=2.0.0-rc.10", features = ["download-binaries", "ndarray"] }
+ndarray = "0.16"
+# 重采样：VAD 需要 16kHz，capture 通常 48kHz
+rubato = "0.16"
+
+# 网络 / IPC
+tokio-tungstenite = "0.24"
+url = "2.5"
+reqwest = { version = "0.12", features = ["json", "stream"], default-features = false }
+
+# 工具
+once_cell = "1.20"
+parking_lot = "0.12"
+uuid = { version = "1.11", features = ["v4"] }
+sha2 = "0.10"
+hex = "0.4"
+dirs = "5.0"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# Windows 专用：ASIO 支持需要 cpal 启用 asio feature
+cpal = { version = "0.15", features = [] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

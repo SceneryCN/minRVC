@@ -1,0 +1,4 @@
+# vendor 文件由 setup_rvc.py 动态下载，不入库
+infer_pack/
+rmvpe.py
+VENDOR_INFO.txt

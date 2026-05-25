@@ -1,0 +1,247 @@
+/*
+ * 音色卡片：玻璃态 + 角标 + 选中态光晕 + 微 3D 倾斜
+ *
+ * 性能要点：
+ * - 所有动画都基于 transform / opacity，避免 layout thrashing
+ * - glow 用 ::before + filter:blur，不影响子元素的 paint
+ * - hover 用 will-change: transform 提示 GPU
+ */
+
+.card {
+  --card-color: var(--color-accent);
+  --card-color-soft: color-mix(in srgb, var(--card-color) 18%, transparent);
+  --card-color-faint: color-mix(in srgb, var(--card-color) 8%, transparent);
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  min-height: 192px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  isolation: isolate;
+  transition:
+    transform var(--transition-base) var(--ease-spring),
+    border-color var(--transition-base),
+    background-color var(--transition-base);
+  will-change: transform;
+}
+
+/* 渐变光晕背景（默认隐身） */
+.card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle at var(--mx, 50%) var(--my, 0%),
+    var(--card-color-soft),
+    transparent 60%
+  );
+  opacity: 0;
+  transition: opacity var(--transition-base);
+  z-index: -1;
+}
+
+/* 顶部装饰条 */
+.card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--card-color) 35%,
+    var(--card-color) 65%,
+    transparent
+  );
+  opacity: 0;
+  transition: opacity var(--transition-base);
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-border-hover);
+}
+
+.card:hover::before,
+.card:hover::after {
+  opacity: 1;
+}
+
+.card:active {
+  transform: translateY(0);
+}
+
+.card[data-selected='true'] {
+  border-color: transparent;
+  background:
+    linear-gradient(
+      135deg,
+      var(--card-color-faint) 0%,
+      transparent 60%
+    ),
+    var(--color-bg-elevated);
+  box-shadow:
+    0 0 0 1.5px var(--card-color),
+    0 8px 28px color-mix(in srgb, var(--card-color) 28%, transparent);
+}
+
+.card[data-selected='true']::before {
+  opacity: 1;
+}
+
+.card[data-selected='true']::after {
+  opacity: 1;
+  height: 3px;
+  filter: blur(0.5px);
+}
+
+/* ─── 内部布局 ─── */
+
+.iconWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-md);
+  background: var(--card-color-faint);
+  color: var(--card-color);
+  transition:
+    transform var(--transition-base) var(--ease-spring),
+    background var(--transition-base);
+}
+
+.iconWrap svg {
+  width: 26px;
+  height: 26px;
+  stroke-width: 1.8;
+}
+
+.card:hover .iconWrap {
+  transform: scale(1.06) rotate(-3deg);
+}
+
+.card[data-selected='true'] .iconWrap {
+  background: var(--card-color-soft);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--card-color) 35%, transparent),
+    0 0 16px color-mix(in srgb, var(--card-color) 35%, transparent);
+}
+
+.card[data-selected='true'] .iconWrap svg {
+  animation: icon-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes icon-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+}
+
+.name {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-text-primary);
+}
+
+.desc {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.45;
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-top: auto;
+}
+
+.pitchHint {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  letter-spacing: 0.04em;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-bg-overlay);
+  color: var(--color-text-tertiary);
+  border: 1px solid var(--color-border);
+  font-weight: 500;
+}
+
+.badge[data-installed='true'] {
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+  background: color-mix(in srgb, var(--color-success) 10%, transparent);
+}
+
+.badgeDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.checkMark {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--card-color);
+  color: var(--color-bg-elevated);
+  opacity: 0;
+  transform: scale(0.5);
+  transition:
+    opacity var(--transition-fast),
+    transform var(--transition-base) var(--ease-spring);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--card-color) 50%, transparent);
+}
+
+.checkMark svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 3;
+}
+
+.card[data-selected='true'] .checkMark {
+  opacity: 1;
+  transform: scale(1);
+}

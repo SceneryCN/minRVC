@@ -1,0 +1,55 @@
+{
+  "name": "rvc-voice-changer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "傻瓜式实时 RVC 变声器 - Tauri + Rust + Python sidecar",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "sidecar:install": "cd sidecar && python -m pip install -r requirements.txt",
+    "sidecar:build": "cd sidecar && python build_sidecar.py",
+    "sidecar:dev": "cd sidecar && python -m rvc_engine.server",
+    "icons": "python scripts/generate_icons.py",
+    "bundle:windows": "pnpm sidecar:build && tauri build --config src-tauri/tauri.bundle.conf.json --bundles msi,nsis",
+    "bundle:macos": "pnpm sidecar:build && tauri build --config src-tauri/tauri.bundle.conf.json --bundles dmg,app",
+    "bundle:linux": "pnpm sidecar:build && tauri build --config src-tauri/tauri.bundle.conf.json --bundles deb,appimage",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\""
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.1.1",
+    "@tauri-apps/plugin-dialog": "^2.0.1",
+    "@tauri-apps/plugin-fs": "^2.0.3",
+    "@tauri-apps/plugin-shell": "^2.0.1",
+    "i18next": "^23.16.5",
+    "lucide-react": "^1.16.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-i18next": "^15.1.1",
+    "zustand": "^5.0.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0",
+    "@types/node": "^25.9.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@typescript-eslint/eslint-plugin": "^8.13.0",
+    "@typescript-eslint/parser": "^8.13.0",
+    "@vitejs/plugin-react": "^4.3.3",
+    "eslint": "^9.14.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.14",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20"
+  }
+}

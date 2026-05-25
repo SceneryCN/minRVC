@@ -1,0 +1,390 @@
+/* 离线分离面板：拖入区 / 选项 / 进度 / 结果 */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.intro {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-accent) 12%, transparent) 0%,
+    color-mix(in srgb, var(--color-cyan) 8%, transparent) 100%
+  );
+  border: 1px solid var(--color-border);
+}
+
+.intro svg {
+  width: 28px;
+  height: 28px;
+  color: var(--color-accent);
+  stroke-width: 2;
+  flex-shrink: 0;
+}
+
+.introTitle {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.introDesc {
+  margin: 4px 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+/* ─── 文件选择 ─── */
+
+.dropZone {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
+  transition:
+    border-color var(--transition-base),
+    background-color var(--transition-base);
+}
+
+.dropZone[data-active] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.dropBtn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: transparent;
+  border: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.dropBtn svg {
+  width: 18px;
+  height: 18px;
+  color: var(--color-accent);
+  stroke-width: 2;
+}
+
+.fileName {
+  color: var(--color-text-primary);
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.replace {
+  margin-left: var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  font-weight: 500;
+}
+
+/* ─── 选项行 ─── */
+
+.optionRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+@media (max-width: 720px) {
+  .optionRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+.optionLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.select {
+  padding: 8px 12px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.select:hover {
+  border-color: var(--color-border-hover);
+}
+
+.select:focus {
+  border-color: var(--color-accent);
+}
+
+.segment {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 3px;
+}
+
+.segment button {
+  background: transparent;
+  border: none;
+  padding: 6px 12px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  border-radius: calc(var(--radius-md) - 3px);
+  cursor: pointer;
+  font-weight: 600;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.segment button:hover:not(:disabled) {
+  color: var(--color-text-primary);
+}
+
+.segment button[data-active] {
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.segment button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─── Action ─── */
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.primaryBtn,
+.cancelBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+  border: none;
+}
+
+.primaryBtn {
+  background: linear-gradient(135deg, var(--color-accent), var(--color-cyan));
+  color: white;
+  box-shadow: var(--shadow-glow-soft);
+}
+
+.primaryBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.primaryBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.cancelBtn {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+}
+
+.cancelBtn:hover {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.primaryBtn svg,
+.cancelBtn svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.2;
+}
+
+/* ─── 进度 ─── */
+
+.progressBox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+}
+
+.progressHead {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.progressIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--color-accent);
+}
+
+.progressIcon svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.2;
+}
+
+.progressBox[data-state='done'] .progressIcon {
+  color: var(--color-success);
+}
+
+.progressBox[data-state='failed'] .progressIcon,
+.progressBox[data-state='cancelled'] .progressIcon {
+  color: var(--color-danger);
+}
+
+.progressText {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.progressPct {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.progressBar {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-bg-base);
+  overflow: hidden;
+}
+
+.progressFill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--color-accent), var(--color-cyan));
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 200ms ease-out;
+  will-change: transform;
+}
+
+.spin {
+  animation: sep-spin 1s linear infinite;
+}
+
+@keyframes sep-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ─── 结果行 ─── */
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--color-border);
+}
+
+.resultRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.resultLabel {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  color: var(--color-accent);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.resultPath {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-base);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resultBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.resultBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.resultBtn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.error {
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
+  color: var(--color-danger);
+  font-size: var(--font-size-xs);
+}

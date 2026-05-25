@@ -1,0 +1,60 @@
+/* 顶部 tab 切换：滑块指示器 + 高对比 hover */
+
+.bar {
+  position: relative;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  padding: 4px;
+  isolation: isolate;
+}
+
+.indicator {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  border-radius: calc(var(--radius-pill) - 4px);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-cyan));
+  box-shadow: var(--shadow-glow-soft);
+  transition: transform var(--transition-base);
+  will-change: transform;
+  z-index: 0;
+}
+
+.tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 18px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  z-index: 1;
+  transition: color var(--transition-fast);
+}
+
+.tab svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.2;
+}
+
+.tab:hover {
+  color: var(--color-text-primary);
+}
+
+.tab[data-active] {
+  color: white;
+}
