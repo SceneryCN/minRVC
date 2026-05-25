@@ -29,13 +29,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node 20 + pnpm
+      # pnpm 版本由 package.json 的 "packageManager" 字段决定，这里不再显式 version，
+      # 否则会与 packageManager 冲突报 ERR_PNPM_BAD_PM_VERSION。
+      - name: Setup pnpm
         uses: pnpm/action-setup@v4
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
         with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Setup Rust + target
