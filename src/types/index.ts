@@ -1,4 +1,4 @@
-export type VoiceId = 'yujie' | 'loli' | 'shaonian' | 'naiqing' | 'qingshu';
+export type VoiceId = string;
 
 export interface AudioDeviceInfo {
   name: string;
@@ -22,6 +22,18 @@ export interface VoiceModelInfo {
   source_url: string | null;
 }
 
+export interface ImportVoiceModelPayload {
+  voice_id: string;
+  pth_path: string;
+  index_path: string | null;
+  display_name?: string;
+  description?: string;
+  category?: string;
+  gender?: 'female' | 'male' | 'unknown';
+  sample_rate?: number;
+  recommended_pitch?: number;
+}
+
 export type EngineStatus = 'Stopped' | 'Starting' | 'Running' | 'Stopping' | 'Error';
 
 export interface EngineStatusPayload {
@@ -40,6 +52,29 @@ export interface StartEnginePayload {
   output_device: string | null;
   voice_id: string;
   pitch_shift?: number;
+  realtime_config?: RealtimeConfig;
+}
+
+export type F0Method = 'rmvpe' | 'fcpe' | 'crepe';
+export type SampleRateMode = 'device' | 'custom';
+
+export interface RealtimeConfig {
+  responseThreshold: number;
+  voiceThickness: number;
+  indexRate: number;
+  rmsMixRate: number;
+  protect: number;
+  loudness: number;
+  f0Method: F0Method;
+  f0FilterRadius: number;
+  resampleSr: number;
+  sampleRateMode: SampleRateMode;
+  customSampleRate: number;
+  chunkSize: number;
+  harvestProcesses: number;
+  crossfadeMs: number;
+  extraInferenceMs: number;
+  bufferMs: number;
 }
 
 /**
@@ -79,4 +114,53 @@ export interface SeparationStatus {
   error: string | null;
 }
 
-export type AppTabId = 'voice' | 'lab';
+export type TrainingState =
+  | 'pending'
+  | 'running'
+  | 'done'
+  | 'failed'
+  | 'cancelled';
+
+export interface TrainingStatus {
+  sessionId: string;
+  state: TrainingState;
+  progress: number;
+  message: string | null;
+  error: string | null;
+  pthPath: string | null;
+  indexPath: string | null;
+  logPath: string | null;
+}
+
+export interface TrainingGpuInfo {
+  available: boolean;
+  backend: 'cuda' | 'mps' | 'cpu' | string;
+  name: string;
+}
+
+export interface StartTrainingPayload {
+  dataset_dir: string;
+  voice_name: string;
+  training_package_dir?: string | null;
+  epochs?: number;
+  batch_size?: number;
+  sample_rate?: number;
+  f0_method?: F0Method;
+  save_every_epoch?: number;
+  model_version?: 'v1' | 'v2';
+  gpu_ids?: string | null;
+  cache_gpu?: boolean;
+  save_latest_only?: boolean;
+  save_every_weights?: boolean;
+  pretrained_g?: string | null;
+  pretrained_d?: string | null;
+  use_gpu?: boolean;
+}
+
+export interface F0ModelStatus {
+  rmvpeInstalled: boolean;
+  rmvpePath: string | null;
+  rmvpeDownloadUrl: string;
+}
+
+export type AppTabId = 'voice' | 'lab' | 'train' | 'help';

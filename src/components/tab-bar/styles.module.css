@@ -17,7 +17,7 @@
   top: 4px;
   bottom: 4px;
   left: 4px;
-  width: calc(50% - 4px);
+  width: calc((100% - 8px) / 4);
   border-radius: calc(var(--radius-pill) - 4px);
   background: linear-gradient(135deg, var(--color-accent), var(--color-cyan));
   box-shadow: var(--shadow-glow-soft);

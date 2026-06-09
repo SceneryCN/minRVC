@@ -32,6 +32,7 @@ from pydantic import BaseModel
 from .config import SidecarConfig
 from .pipeline import RVCPipeline
 from .separate import SeparationManager
+from .train import TrainingManager, detect_gpu
 
 
 class SeparateRequest(BaseModel):
@@ -40,10 +41,49 @@ class SeparateRequest(BaseModel):
     two_stems: bool = True
 
 
+class RealtimeConfigRequest(BaseModel):
+    responseThreshold: float = 0.5
+    voiceThickness: float = 0.0
+    indexRate: float = 0.5
+    rmsMixRate: float = 0.25
+    protect: float = 0.33
+    loudness: float = 1.0
+    f0Method: str = "rmvpe"
+    f0FilterRadius: int = 3
+    resampleSr: int = 0
+    sampleRateMode: str = "device"
+    customSampleRate: int = 48_000
+    chunkSize: int = 4096
+    harvestProcesses: int = 2
+    crossfadeMs: int = 10
+    extraInferenceMs: int = 2500
+    bufferMs: int = 500
+
+
+class TrainRequest(BaseModel):
+    dataset_dir: str
+    voice_name: str
+    training_package_dir: Optional[str] = None
+    epochs: int = 200
+    batch_size: int = 4
+    sample_rate: int = 40_000
+    f0_method: str = "rmvpe"
+    save_every_epoch: int = 10
+    model_version: str = "v2"
+    gpu_ids: Optional[str] = None
+    cache_gpu: bool = False
+    save_latest_only: bool = True
+    save_every_weights: bool = False
+    pretrained_g: Optional[str] = None
+    pretrained_d: Optional[str] = None
+    use_gpu: bool = True
+
+
 def create_app(cfg: SidecarConfig) -> FastAPI:
     app = FastAPI(title="rvc-engine")
     pipeline = RVCPipeline(cfg)
     separation = SeparationManager(cfg)
+    training = TrainingManager(cfg)
 
     @app.get("/health")
     async def health() -> JSONResponse:
@@ -87,6 +127,53 @@ def create_app(cfg: SidecarConfig) -> FastAPI:
         ok = separation.cancel(session_id)
         return JSONResponse({"cancelled": ok})
 
+    # ---------- 本机模型训练 ----------
+
+    @app.get("/train/gpu")
+    async def train_gpu() -> JSONResponse:
+        return JSONResponse(await asyncio.to_thread(detect_gpu))
+
+    @app.post("/train")
+    async def start_train(req: TrainRequest) -> JSONResponse:
+        try:
+            job = await asyncio.to_thread(
+                training.start,
+                dataset_dir=req.dataset_dir,
+                voice_name=req.voice_name,
+                training_package_dir=req.training_package_dir,
+                epochs=req.epochs,
+                batch_size=req.batch_size,
+                sample_rate=req.sample_rate,
+                f0_method=req.f0_method,
+                save_every_epoch=req.save_every_epoch,
+                model_version=req.model_version,
+                gpu_ids=req.gpu_ids,
+                cache_gpu=req.cache_gpu,
+                save_latest_only=req.save_latest_only,
+                save_every_weights=req.save_every_weights,
+                pretrained_g=req.pretrained_g,
+                pretrained_d=req.pretrained_d,
+                use_gpu=req.use_gpu,
+            )
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except Exception as e:  # noqa: BLE001
+            logger.exception("启动训练任务失败")
+            raise HTTPException(status_code=500, detail=str(e)) from e
+        return JSONResponse({"session_id": job.session_id})
+
+    @app.get("/train/status/{session_id}")
+    async def train_status(session_id: str) -> JSONResponse:
+        job = training.get_job(session_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="session not found")
+        return JSONResponse(job.to_dict())
+
+    @app.post("/train/cancel/{session_id}")
+    async def train_cancel(session_id: str) -> JSONResponse:
+        ok = training.cancel(session_id)
+        return JSONResponse({"cancelled": ok})
+
     @app.websocket("/stream")
     async def stream(ws: WebSocket) -> None:
         await ws.accept()
@@ -109,8 +196,16 @@ def create_app(cfg: SidecarConfig) -> FastAPI:
                         out_sr = int(payload["out_sr"])
                         voice_id = payload["voice_id"]
                         pitch = int(payload.get("pitch", 0))
+                        config = RealtimeConfigRequest.model_validate(
+                            payload.get("config", {})
+                        )
                         await asyncio.to_thread(
-                            pipeline.prepare, voice_id, pitch, in_sr, out_sr
+                            pipeline.prepare,
+                            voice_id,
+                            pitch,
+                            in_sr,
+                            out_sr,
+                            config.model_dump(),
                         )
                         await ws.send_text(json.dumps({"type": "ready"}))
                         ready_sent = True
@@ -128,6 +223,18 @@ def create_app(cfg: SidecarConfig) -> FastAPI:
                         pipeline.set_pitch(int(payload["pitch"]))
                         await ws.send_text(
                             json.dumps({"type": "status", "state": "pitch_changed"})
+                        )
+
+                    elif mtype == "set_realtime_config":
+                        config = RealtimeConfigRequest.model_validate(
+                            payload.get("config", {})
+                        )
+                        await asyncio.to_thread(
+                            pipeline.set_realtime_config,
+                            config.model_dump(),
+                        )
+                        await ws.send_text(
+                            json.dumps({"type": "status", "state": "config_changed"})
                         )
 
                     else:
@@ -149,7 +256,7 @@ def create_app(cfg: SidecarConfig) -> FastAPI:
                             )
                         )
                         continue
-                    samples = np.frombuffer(raw, dtype=np.float32).copy()
+                    samples = np.frombuffer(raw, dtype=np.float32)
                     out = await asyncio.to_thread(pipeline.process, samples)
                     if out is not None and out.size > 0:
                         await ws.send_bytes(out.astype(np.float32).tobytes())

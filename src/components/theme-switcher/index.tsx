@@ -1,21 +1,23 @@
 import { memo, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { useTheme, type ThemeMode } from '@/hooks/use-theme';
 import styles from './styles.module.css';
 
 interface OptionDef {
   key: ThemeMode;
-  label: string;
+  labelKey: string;
   Icon: typeof Sun;
 }
 
 const OPTIONS: ReadonlyArray<OptionDef> = [
-  { key: 'light', label: '浅色', Icon: Sun },
-  { key: 'dark', label: '暗色', Icon: Moon },
-  { key: 'system', label: '跟随系统', Icon: Monitor },
+  { key: 'light', labelKey: 'theme.light', Icon: Sun },
+  { key: 'dark', labelKey: 'theme.dark', Icon: Moon },
+  { key: 'system', labelKey: 'theme.system', Icon: Monitor },
 ];
 
 function ThemeSwitcherImpl() {
+  const { t } = useTranslation();
   const { mode, setMode } = useTheme();
 
   const indicatorStyle = useMemo(() => {
@@ -24,9 +26,11 @@ function ThemeSwitcherImpl() {
   }, [mode]);
 
   return (
-    <div className={styles.group} role="radiogroup" aria-label="主题">
+    <div className={styles.group} role="radiogroup" aria-label={t('theme.aria')}>
       <div className={styles.indicator} style={indicatorStyle} aria-hidden />
-      {OPTIONS.map(({ key, label, Icon }) => (
+      {OPTIONS.map(({ key, labelKey, Icon }) => {
+        const label = t(labelKey);
+        return (
         <button
           key={key}
           type="button"
@@ -40,7 +44,8 @@ function ThemeSwitcherImpl() {
         >
           <Icon strokeWidth={2} />
         </button>
-      ))}
+        );
+      })}
     </div>
   );
 }

@@ -40,8 +40,10 @@
 3. 在通道条加入 EQ / Compressor / Limiter / Reverb 等
 4. 主输出送到耳机或推流软件
 
-> StudioOne 的 ASIO 需要单独驱动。如果遇到不兼容，
-> 可装 [ASIO4ALL](http://www.asio4all.org/) 把 WASAPI 包装成 ASIO。
+> 当前应用通过 cpal 使用系统默认音频后端：Windows 是 WASAPI，macOS 是 CoreAudio。
+> 这里没有启用 cpal 的原生 ASIO host。StudioOne 如果必须工作在 ASIO 驱动下，
+> 推荐让 StudioOne 自己使用 ASIO4ALL / FlexASIO / 你的声卡 ASIO 驱动，并把
+> VB-Cable 端口桥接进 StudioOne；应用本身仍选择 `CABLE Input` 输出。
 
 ## 常见问题
 
@@ -54,8 +56,10 @@ A: 因为 CABLE Input 是虚拟扬声器，物理上不出声。两种解决：
 
 **Q: 延迟太大（>300ms）？**
 
-A: 在「声变」里把 chunk_size 调小（默认 1024 → 512），但太小会让 GPU 推理跟不上。
-也可在系统声音控制面板把 CABLE 设备的「位深与采样率」改为 48000Hz / 16bit。
+A: 当前实时链路默认 `chunk_size=4096`，这是为了给 Python RVC 推理留出更稳定的块大小。
+如果你的 GPU 足够快，可以在 Rust `StartConfig` 调小到 2048 或 1024 试延迟；太小会让
+HuBERT/F0/RVC 推理和 WebSocket 调用更频繁，反而更容易爆音或断续。也可在系统声音控制
+面板把 CABLE 设备的「位深与采样率」改为 48000Hz / 16bit。
 
 **Q: 直播软件听到的声音有「咔哒」声？**
 

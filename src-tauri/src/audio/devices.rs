@@ -97,7 +97,9 @@ mod tests {
 
     #[test]
     fn keyword_match() {
-        assert!(is_virtual_cable_name("CABLE Input (VB-Audio Virtual Cable)"));
+        assert!(is_virtual_cable_name(
+            "CABLE Input (VB-Audio Virtual Cable)"
+        ));
         assert!(is_virtual_cable_name("BlackHole 2ch"));
         assert!(!is_virtual_cable_name("Built-in Microphone"));
     }

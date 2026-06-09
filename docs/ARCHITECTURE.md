@@ -60,7 +60,7 @@ ContentVec/RMVPE 算子在 TensorRT 上有强制 CPU 回退，反而比 PyTorch 
 
 ### 为什么 Rust 端仍然存在？
 
-- cpal 在 Windows 上能拿到 WASAPI 独占模式，延迟比 PyAudio/SoundDevice 低
+- cpal 在 Windows 上走 WASAPI、macOS 上走 CoreAudio，音频线程和 Python 推理进程隔离
 - 进程级隔离：Python 推理崩溃不影响音频线程，前端可立刻重连
 - 安装包 + 启动时间：Tauri ~5MB shell，比 Electron 小一个数量级
 - 后续若 ONNX 路径成熟，可直接把 sidecar 替换为 Rust ONNX，IPC 协议不变
@@ -70,11 +70,12 @@ ContentVec/RMVPE 算子在 TensorRT 上有强制 CPU 回退，反而比 PyTorch 
 cpal 的 callback 在专用音频线程上，禁止做任何分配/系统调用/锁等待。
 SPSC ring（无锁、固定大小）是音频领域的标准做法，毫秒级即可送达 Tokio 任务。
 
-### 为什么 chunk_size = 1024 @ 48kHz？
+### 为什么 chunk_size = 4096 @ 48kHz？
 
-≈ 21ms 采样窗口。RVC 实时变声的「合理延迟」范围是 80–250ms（块大小 +
-HuBERT 上下文 + 输出缓冲），其中模型推理是大头，缓冲只占其中一小部分。
-1024 是延迟与 IPC 调用次数的甜点。
+≈ 85ms 采样窗口。RVC 实时变声的「合理延迟」主要由 HuBERT/ContentVec、
+F0 提取、生成器推理、SOLA 拼接和输出缓冲决定，块大小只是其中一部分。
+4096 会让 Python sidecar 拿到更稳定的推理块，减少 WebSocket 调用频率和短块拼接抖动。
+如果 GPU 足够快，可以把命令层的 `StartConfig.chunk_size` 调到 2048 或 1024 做低延迟实验。
 
 ## 4. 错误处理
 

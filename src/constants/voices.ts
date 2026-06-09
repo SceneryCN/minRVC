@@ -1,8 +1,7 @@
 import { Coffee, Crown, Flame, Mountain, Sparkles, type LucideIcon } from 'lucide-react';
-import type { VoiceId } from '@/types';
 
 export interface VoicePreset {
-  id: VoiceId;
+  id: string;
   i18nKey: string;
   Icon: LucideIcon;
   /** CSS 变量名，引用 styles/variables.css 中的 --voice-* */
@@ -55,3 +54,5 @@ export const VOICE_PRESETS: ReadonlyArray<VoicePreset> = [
 ] as const;
 
 export const PITCH_RANGE = { min: -24, max: 24, step: 1 } as const;
+
+export const VOICE_PRESET_MAP = new Map(VOICE_PRESETS.map((preset) => [preset.id, preset]));

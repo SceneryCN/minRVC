@@ -1,6 +1,6 @@
 //! 引擎控制命令：start / stop / 切换音色 / 调音高。
 
-use crate::audio::engine::{EngineStatus, StartConfig};
+use crate::audio::engine::{EngineStatus, RealtimeConfig, StartConfig};
 use crate::error::AppResult;
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
@@ -12,6 +12,7 @@ pub struct StartEnginePayload {
     pub output_device: Option<String>,
     pub voice_id: String,
     pub pitch_shift: Option<i32>,
+    pub realtime_config: Option<RealtimeConfig>,
 }
 
 #[derive(Debug, Serialize)]
@@ -28,14 +29,18 @@ pub async fn start_engine(
 ) -> AppResult<()> {
     state.sidecar.ensure_started().await?;
 
+    let realtime_config = payload.realtime_config.unwrap_or_default();
+    let chunk_size = realtime_config.chunk_size.clamp(1024, 16_384);
+    let latency_secs = (realtime_config.buffer_ms as f32 / 1000.0).clamp(0.1, 2.0);
     let cfg = StartConfig {
         input_device: payload.input_device,
         output_device: payload.output_device,
         voice_id: payload.voice_id.clone(),
         pitch_shift: payload.pitch_shift.unwrap_or(0),
         sidecar_ws_url: state.sidecar.ws_url(),
-        chunk_size: 1024,
-        latency_secs: 0.5,
+        chunk_size,
+        latency_secs,
+        realtime_config,
     };
 
     {
@@ -62,9 +67,7 @@ pub async fn stop_engine(state: State<'_, AppState>) -> AppResult<()> {
 }
 
 #[tauri::command]
-pub async fn get_engine_status(
-    state: State<'_, AppState>,
-) -> AppResult<EngineStatusPayload> {
+pub async fn get_engine_status(state: State<'_, AppState>) -> AppResult<EngineStatusPayload> {
     let engine = state.audio_engine.lock().await;
     Ok(EngineStatusPayload {
         status: engine.status(),
@@ -79,7 +82,8 @@ pub async fn set_voice(state: State<'_, AppState>, voice_id: String) -> AppResul
         let mut v = state.current_voice.write();
         *v = Some(voice_id.clone());
     }
-    // TODO: 通过 sidecar IPC 在不重启引擎的情况下热切换音色
+    let engine = state.audio_engine.lock().await;
+    engine.set_voice(voice_id.clone()).await?;
     tracing::info!("set_voice -> {voice_id}");
     Ok(())
 }
@@ -87,8 +91,22 @@ pub async fn set_voice(state: State<'_, AppState>, voice_id: String) -> AppResul
 #[tauri::command]
 pub async fn set_pitch_shift(state: State<'_, AppState>, semitones: i32) -> AppResult<()> {
     let semitones = semitones.clamp(-24, 24);
-    let mut p = state.pitch_shift.write();
-    *p = semitones;
+    {
+        let mut p = state.pitch_shift.write();
+        *p = semitones;
+    }
+    let engine = state.audio_engine.lock().await;
+    engine.set_pitch(semitones).await?;
     tracing::info!("set_pitch_shift -> {semitones}");
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_realtime_config(
+    state: State<'_, AppState>,
+    config: RealtimeConfig,
+) -> AppResult<()> {
+    let engine = state.audio_engine.lock().await;
+    engine.set_realtime_config(config).await?;
     Ok(())
 }

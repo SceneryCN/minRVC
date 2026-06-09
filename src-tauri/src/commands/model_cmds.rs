@@ -2,7 +2,7 @@
 
 use crate::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct VoiceModelInfo {
@@ -31,6 +31,10 @@ fn models_dir() -> AppResult<PathBuf> {
     let dir = base.join("rvc-voice-changer").join("models");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
+}
+
+fn rmvpe_path() -> AppResult<PathBuf> {
+    Ok(models_dir()?.join("rmvpe").join("rmvpe.pt"))
 }
 
 fn manifest_path() -> AppResult<PathBuf> {
@@ -70,7 +74,10 @@ pub fn list_voice_models() -> AppResult<Vec<VoiceModelInfo>> {
             } else {
                 None
             };
-            let idx = dir.join("voices").join(&v.id).join(format!("{}.index", v.id));
+            let idx = dir
+                .join("voices")
+                .join(&v.id)
+                .join(format!("{}.index", v.id));
             v.index_path = if idx.exists() {
                 Some(idx.to_string_lossy().into_owned())
             } else {
@@ -87,6 +94,12 @@ pub struct ImportPayload {
     pub voice_id: String,
     pub pth_path: String,
     pub index_path: Option<String>,
+    pub display_name: Option<String>,
+    pub description: Option<String>,
+    pub category: Option<String>,
+    pub gender: Option<String>,
+    pub sample_rate: Option<u32>,
+    pub recommended_pitch: Option<i32>,
 }
 
 #[tauri::command]
@@ -102,29 +115,68 @@ pub fn import_voice_model(payload: ImportPayload) -> AppResult<VoiceModelInfo> {
     }
 
     let mut m = load_manifest()?;
-    let info = m
-        .voices
-        .iter()
-        .find(|v| v.id == payload.voice_id)
-        .cloned()
-        .unwrap_or_else(|| VoiceModelInfo {
-            id: payload.voice_id.clone(),
-            display_name: payload.voice_id.clone(),
-            description: "用户导入".into(),
-            category: "custom".into(),
-            gender: "unknown".into(),
-            sample_rate: 40_000,
-            pth_path: None,
-            index_path: None,
-            installed: false,
-            recommended_pitch: 0,
-            source_url: None,
-        });
-    if !m.voices.iter().any(|v| v.id == info.id) {
-        m.voices.push(info.clone());
-        save_manifest(&m)?;
-    }
-    Ok(info)
+    let index_dst = dir.join(format!("{}.index", payload.voice_id));
+    let next_info = match m.voices.iter_mut().find(|v| v.id == payload.voice_id) {
+        Some(info) => {
+            if let Some(display_name) = payload.display_name.as_ref() {
+                info.display_name = display_name.trim().to_string();
+            }
+            if let Some(description) = payload.description.as_ref() {
+                info.description = description.trim().to_string();
+            }
+            if let Some(category) = payload.category.as_ref() {
+                info.category = category.trim().to_string();
+            }
+            if let Some(gender) = payload.gender.as_ref() {
+                info.gender = gender.trim().to_string();
+            }
+            if let Some(sample_rate) = payload.sample_rate {
+                info.sample_rate = sample_rate;
+            }
+            if let Some(recommended_pitch) = payload.recommended_pitch {
+                info.recommended_pitch = recommended_pitch;
+            }
+            info.pth_path = Some(pth_dst.to_string_lossy().into_owned());
+            info.index_path = index_dst
+                .exists()
+                .then(|| index_dst.to_string_lossy().into_owned());
+            info.installed = true;
+            info.clone()
+        }
+        None => {
+            let info = VoiceModelInfo {
+                id: payload.voice_id.clone(),
+                display_name: payload
+                    .display_name
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(&payload.voice_id)
+                    .to_string(),
+                description: payload
+                    .description
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("用户导入的自定义音色")
+                    .to_string(),
+                category: payload.category.unwrap_or_else(|| "custom".into()),
+                gender: payload.gender.unwrap_or_else(|| "unknown".into()),
+                sample_rate: payload.sample_rate.unwrap_or(40_000),
+                pth_path: Some(pth_dst.to_string_lossy().into_owned()),
+                index_path: index_dst
+                    .exists()
+                    .then(|| index_dst.to_string_lossy().into_owned()),
+                installed: true,
+                recommended_pitch: payload.recommended_pitch.unwrap_or(0),
+                source_url: None,
+            };
+            m.voices.push(info.clone());
+            info
+        }
+    };
+    save_manifest(&m)?;
+    Ok(next_info)
 }
 
 #[derive(Debug, Deserialize)]
@@ -157,6 +209,54 @@ pub async fn download_preset_model(payload: DownloadPayload) -> AppResult<VoiceM
     std::fs::write(&dst, &bytes)?;
 
     Ok(info)
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct F0ModelStatus {
+    pub rmvpe_installed: bool,
+    pub rmvpe_path: Option<String>,
+    pub rmvpe_download_url: String,
+}
+
+#[tauri::command]
+pub fn get_f0_model_status() -> AppResult<F0ModelStatus> {
+    let path = rmvpe_path()?;
+    Ok(F0ModelStatus {
+        rmvpe_installed: path.exists(),
+        rmvpe_path: path.exists().then(|| path.to_string_lossy().into_owned()),
+        rmvpe_download_url: "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt"
+            .into(),
+    })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImportF0ModelPayload {
+    pub kind: String,
+    pub path: String,
+}
+
+#[tauri::command]
+pub fn import_f0_model(payload: ImportF0ModelPayload) -> AppResult<F0ModelStatus> {
+    if payload.kind != "rmvpe" {
+        return Err(AppError::Internal(format!(
+            "暂不支持的 F0 模型类型: {}",
+            payload.kind
+        )));
+    }
+    let src = Path::new(&payload.path);
+    if !src.exists() {
+        return Err(AppError::Internal(format!(
+            "F0 模型文件不存在: {}",
+            payload.path
+        )));
+    }
+    let dst = rmvpe_path()?;
+    if let Some(parent) = dst.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::copy(src, &dst)?;
+    get_f0_model_status()
 }
 
 /// 5 个预设音色的初始 manifest。`source_url` 留空，第一版用「用户手动导入」。

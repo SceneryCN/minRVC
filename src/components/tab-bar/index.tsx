@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AudioWaveform, FlaskConical } from 'lucide-react';
+import { AudioWaveform, BookOpen, FlaskConical, GraduationCap } from 'lucide-react';
 import type { AppTabId } from '@/types';
 import styles from './styles.module.css';
 
@@ -13,6 +13,8 @@ interface TabItem {
 const TABS: TabItem[] = [
   { id: 'voice', Icon: AudioWaveform, i18nKey: 'tabs.voice' },
   { id: 'lab', Icon: FlaskConical, i18nKey: 'tabs.lab' },
+  { id: 'train', Icon: GraduationCap, i18nKey: 'tabs.train' },
+  { id: 'help', Icon: BookOpen, i18nKey: 'tabs.help' },
 ];
 
 interface TabBarProps {

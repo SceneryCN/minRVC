@@ -1,6 +1,8 @@
 //! 音频设备相关命令：枚举、检测虚拟声卡、读取实时电平。
 
-use crate::audio::devices::{find_first_virtual_cable_output, list_devices, AudioDeviceInfo, DeviceKind};
+use crate::audio::devices::{
+    find_first_virtual_cable_output, list_devices, AudioDeviceInfo, DeviceKind,
+};
 use crate::error::AppResult;
 use crate::state::AppState;
 use serde::Serialize;

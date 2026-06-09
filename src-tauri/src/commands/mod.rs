@@ -8,3 +8,4 @@ pub mod dsp_cmds;
 pub mod engine_cmds;
 pub mod model_cmds;
 pub mod separation_cmds;
+pub mod training_cmds;

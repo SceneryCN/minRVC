@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2.0.0",
-  "productName": "声变",
+  "productName": "Fuck RVC",
   "version": "0.1.0",
   "identifier": "com.rvc.voicechanger",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "声变 - RVC 实时变声器",
+        "title": "Fuck RVC",
         "width": 1100,
         "height": 720,
         "minWidth": 960,
@@ -42,8 +42,8 @@
     ],
     "resources": [],
     "category": "Music",
-    "shortDescription": "傻瓜式实时 RVC 变声器",
-    "longDescription": "基于 RVC（Retrieval-based Voice Conversion）的实时变声器，提供 5 种预设音色，配合 VB-Cable 虚拟声卡接入直播链路。",
+    "shortDescription": "实时 RVC 变声器",
+    "longDescription": "基于 RVC（Retrieval-based Voice Conversion）的实时变声器，支持预设与自定义音色、离线人声分离和直播链路接入。",
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
@@ -52,12 +52,7 @@
   },
   "plugins": {
     "shell": {
-      "open": true,
-      "scope": []
-    },
-    "fs": {
-      "scope": ["$APPDATA/**", "$APPLOCALDATA/**", "$HOME/Documents/**"]
-    },
-    "dialog": {}
+      "open": true
+    }
   }
 }

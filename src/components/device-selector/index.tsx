@@ -55,7 +55,7 @@ function DeviceSelectorImpl({
               {d.is_virtual_cable ? '◉ ' : ''}
               {d.name}
               {d.sample_rate > 0 ? ` · ${formatSampleRate(d.sample_rate)}` : ''}
-              {d.is_default ? ' · 默认' : ''}
+              {d.is_default ? ` · ${t('device.default')}` : ''}
             </option>
           ))}
         </select>

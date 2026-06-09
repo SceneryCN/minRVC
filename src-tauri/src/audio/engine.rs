@@ -18,9 +18,15 @@ use crate::audio::ring::AudioRingBuffer;
 use crate::error::{AppError, AppResult};
 use crate::ipc::ws_client::{SidecarClient, SidecarFrame};
 use parking_lot::Mutex;
+use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+
+const SIDECAR_READY_TIMEOUT: Duration = Duration::from_secs(90);
+const VAD_PREROLL_MS: usize = 200;
+const DEFAULT_RING_SAMPLE_RATE: u32 = 96_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum EngineStatus {
@@ -28,7 +34,6 @@ pub enum EngineStatus {
     Starting,
     Running,
     Stopping,
-    Error,
 }
 
 #[derive(Debug, Clone)]
@@ -42,6 +47,51 @@ pub struct StartConfig {
     pub chunk_size: usize,
     /// 缓冲允许的最大延迟（秒），用于决定 ringbuf 容量
     pub latency_secs: f32,
+    pub realtime_config: RealtimeConfig,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RealtimeConfig {
+    pub response_threshold: f32,
+    pub voice_thickness: f32,
+    pub index_rate: f32,
+    pub rms_mix_rate: f32,
+    pub protect: f32,
+    pub loudness: f32,
+    pub f0_method: String,
+    pub f0_filter_radius: u32,
+    pub resample_sr: u32,
+    pub sample_rate_mode: String,
+    pub custom_sample_rate: u32,
+    pub chunk_size: usize,
+    pub harvest_processes: usize,
+    pub crossfade_ms: u32,
+    pub extra_inference_ms: u32,
+    pub buffer_ms: u32,
+}
+
+impl Default for RealtimeConfig {
+    fn default() -> Self {
+        Self {
+            response_threshold: 0.5,
+            voice_thickness: 0.0,
+            index_rate: 0.5,
+            rms_mix_rate: 0.25,
+            protect: 0.33,
+            loudness: 1.0,
+            f0_method: "rmvpe".into(),
+            f0_filter_radius: 3,
+            resample_sr: 0,
+            sample_rate_mode: "device".into(),
+            custom_sample_rate: 48_000,
+            chunk_size: 4096,
+            harvest_processes: 2,
+            crossfade_ms: 10,
+            extra_inference_ms: 2500,
+            buffer_ms: 500,
+        }
+    }
 }
 
 impl Default for StartConfig {
@@ -52,8 +102,9 @@ impl Default for StartConfig {
             voice_id: "yujie".into(),
             pitch_shift: 0,
             sidecar_ws_url: "ws://127.0.0.1:8765/stream".into(),
-            chunk_size: 1024,
+            chunk_size: 4096,
             latency_secs: 0.5,
+            realtime_config: RealtimeConfig::default(),
         }
     }
 }
@@ -66,6 +117,13 @@ pub struct AudioEngine {
     capture_level: Arc<Mutex<f32>>,
     output_level: Arc<Mutex<f32>>,
     stop_tx: Option<mpsc::Sender<()>>,
+    control_tx: Option<mpsc::Sender<EngineControl>>,
+}
+
+enum EngineControl {
+    SetVoice(String),
+    SetPitch(i32),
+    SetRealtimeConfig(RealtimeConfig),
 }
 
 impl Default for AudioEngine {
@@ -84,6 +142,7 @@ impl AudioEngine {
             capture_level: Arc::new(Mutex::new(0.0)),
             output_level: Arc::new(Mutex::new(0.0)),
             stop_tx: None,
+            control_tx: None,
         }
     }
 
@@ -104,32 +163,90 @@ impl AudioEngine {
             return Ok(());
         }
         self.status = EngineStatus::Starting;
-        tracing::info!("启动音频引擎: voice={} pitch={}", cfg.voice_id, cfg.pitch_shift);
+        tracing::info!(
+            "启动音频引擎: voice={} pitch={}",
+            cfg.voice_id,
+            cfg.pitch_shift
+        );
+
+        let desired_sample_rate = if cfg.realtime_config.sample_rate_mode == "custom" {
+            Some(cfg.realtime_config.custom_sample_rate)
+        } else {
+            None
+        };
+
+        let ring_sample_rate = desired_sample_rate.unwrap_or(DEFAULT_RING_SAMPLE_RATE);
 
         // 1) 先建采集流，确认采样率
-        let mic_ring = AudioRingBuffer::new(48_000, 1, cfg.latency_secs);
+        let mic_ring = AudioRingBuffer::new(ring_sample_rate, 1, cfg.latency_secs);
         let (mic_prod, mut mic_cons) = mic_ring.split();
-
-        let cap = build_capture_stream(cfg.input_device.as_deref(), mic_prod)?;
+        let cap = match build_capture_stream(
+            cfg.input_device.as_deref(),
+            mic_prod,
+            desired_sample_rate,
+        ) {
+            Ok(cap) => cap,
+            Err(e) => {
+                self.status = EngineStatus::Stopped;
+                return Err(e);
+            }
+        };
         self.capture_level = cap.level_meter.clone();
 
         // 2) 建输出流
-        let out_ring = AudioRingBuffer::new(48_000, 1, cfg.latency_secs);
+        let out_ring = AudioRingBuffer::new(ring_sample_rate, 1, cfg.latency_secs);
         let (mut out_prod, out_cons) = out_ring.split();
-
-        let out_stream = build_output_stream(cfg.output_device.as_deref(), out_cons)?;
+        let out_stream = match build_output_stream(
+            cfg.output_device.as_deref(),
+            out_cons,
+            desired_sample_rate,
+        ) {
+            Ok(stream) => stream,
+            Err(e) => {
+                self.capture = None;
+                self.status = EngineStatus::Stopped;
+                return Err(e);
+            }
+        };
 
         // 3) 连接 sidecar WebSocket
-        let mut client = SidecarClient::connect(&cfg.sidecar_ws_url).await?;
-        client
-            .send_init(&cfg.voice_id, cfg.pitch_shift, cap.sample_rate, out_stream.sample_rate)
-            .await?;
+        let mut client = match SidecarClient::connect(&cfg.sidecar_ws_url).await {
+            Ok(client) => client,
+            Err(e) => {
+                self.capture = None;
+                self.output = None;
+                self.status = EngineStatus::Stopped;
+                return Err(e);
+            }
+        };
+        if let Err(e) = client
+            .send_init(
+                &cfg.voice_id,
+                cfg.pitch_shift,
+                cap.sample_rate,
+                out_stream.sample_rate,
+                &cfg.realtime_config,
+            )
+            .await
+        {
+            self.capture = None;
+            self.output = None;
+            self.status = EngineStatus::Stopped;
+            return Err(e);
+        }
+        if let Err(e) = client.wait_ready(SIDECAR_READY_TIMEOUT).await {
+            self.capture = None;
+            self.output = None;
+            self.status = EngineStatus::Stopped;
+            return Err(e);
+        }
 
         // 4) 启动两个 tokio 任务：
         //    a) 从 mic_ring 弹 chunk → 经 DSP（降噪 + VAD）→ 发 sidecar；
         //       如果 VAD 判定为静音，跳过发送（节省 GPU / 带宽）。
         //    b) 把 sidecar 返回的数据写入 out_ring。
         let (stop_tx, mut stop_rx) = mpsc::channel::<()>(1);
+        let (control_tx, mut control_rx) = mpsc::channel::<EngineControl>(8);
         let chunk = cfg.chunk_size;
         let (mut to_sidecar, mut from_sidecar) = client.split();
 
@@ -138,10 +255,40 @@ impl AudioEngine {
         let send_task = tokio::spawn(async move {
             let mut buf = vec![0.0_f32; chunk];
             let mut dsp_out: Vec<f32> = Vec::with_capacity(chunk * 2);
+            let mut speech_burst: Vec<f32> = Vec::with_capacity(chunk * 4);
+            let mut pre_roll = VecDeque::with_capacity(capture_sr as usize * VAD_PREROLL_MS / 1000);
+            let pre_roll_capacity = capture_sr as usize * VAD_PREROLL_MS / 1000;
+            let mut was_speaking = false;
             let mut processor = DspProcessor::new(capture_sr, dsp_for_task);
             loop {
                 tokio::select! {
                     _ = stop_rx.recv() => break,
+                    cmd = control_rx.recv() => {
+                        match cmd {
+                            Some(EngineControl::SetVoice(voice_id)) => {
+                                if let Err(e) = to_sidecar.set_voice(&voice_id).await {
+                                    tracing::warn!("切换 sidecar 音色失败: {e}");
+                                    break;
+                                }
+                                processor.reset();
+                                pre_roll.clear();
+                                was_speaking = false;
+                            }
+                            Some(EngineControl::SetPitch(pitch)) => {
+                                if let Err(e) = to_sidecar.set_pitch(pitch).await {
+                                    tracing::warn!("设置 sidecar 音高失败: {e}");
+                                    break;
+                                }
+                            }
+                            Some(EngineControl::SetRealtimeConfig(config)) => {
+                                if let Err(e) = to_sidecar.set_realtime_config(&config).await {
+                                    tracing::warn!("设置 sidecar 实时参数失败: {e}");
+                                    break;
+                                }
+                            }
+                            None => break,
+                        }
+                    }
                     _ = tokio::time::sleep(std::time::Duration::from_millis(5)) => {
                         let mut filled = 0;
                         while filled < chunk {
@@ -156,11 +303,26 @@ impl AudioEngine {
                         // DSP 处理
                         dsp_out.clear();
                         let speaking = processor.process(&buf[..filled], &mut dsp_out);
-                        if !speaking || dsp_out.is_empty() {
-                            // 静音段：直接丢弃，不送 sidecar
+                        if dsp_out.is_empty() {
                             continue;
                         }
-                        if let Err(e) = to_sidecar.send_audio(&dsp_out).await {
+                        if !speaking {
+                            push_preroll(&mut pre_roll, &dsp_out, pre_roll_capacity);
+                            was_speaking = false;
+                            continue;
+                        }
+
+                        let samples = if was_speaking || pre_roll.is_empty() {
+                            &dsp_out
+                        } else {
+                            speech_burst.clear();
+                            speech_burst.extend(pre_roll.drain(..));
+                            speech_burst.extend_from_slice(&dsp_out);
+                            &speech_burst
+                        };
+                        was_speaking = true;
+
+                        if let Err(e) = to_sidecar.send_audio(samples).await {
                             tracing::warn!("发送到 sidecar 失败: {e}");
                             break;
                         }
@@ -176,13 +338,20 @@ impl AudioEngine {
                     Ok(SidecarFrame::Audio(samples)) => {
                         let mut peak = 0.0_f32;
                         for s in &samples {
-                            if s.abs() > peak { peak = s.abs(); }
+                            if s.abs() > peak {
+                                peak = s.abs();
+                            }
                             let _ = ringbuf::traits::Producer::try_push(&mut out_prod, *s);
                         }
                         let mut g = output_level.lock();
                         *g = 0.8 * *g + 0.2 * peak;
                     }
-                    Ok(SidecarFrame::Status(_)) | Ok(SidecarFrame::Error(_)) => {}
+                    Ok(SidecarFrame::Status(state)) => {
+                        tracing::debug!("sidecar status: {state}");
+                    }
+                    Ok(SidecarFrame::Error(message)) => {
+                        tracing::warn!("sidecar error: {message}");
+                    }
                     Err(e) => {
                         tracing::warn!("sidecar 帧解析错误: {e}");
                         break;
@@ -195,8 +364,54 @@ impl AudioEngine {
         self.output = Some(out_stream);
         self.tasks = vec![send_task, recv_task];
         self.stop_tx = Some(stop_tx);
+        self.control_tx = Some(control_tx);
         self.status = EngineStatus::Running;
         Ok(())
+    }
+
+    pub async fn set_voice(&self, voice_id: String) -> AppResult<()> {
+        match self.status {
+            EngineStatus::Running | EngineStatus::Starting => {
+                let tx = self
+                    .control_tx
+                    .as_ref()
+                    .ok_or_else(|| AppError::AudioStream("音频引擎控制通道未初始化".into()))?;
+                tx.send(EngineControl::SetVoice(voice_id))
+                    .await
+                    .map_err(|_| AppError::AudioStream("音频引擎控制通道已关闭".into()))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    pub async fn set_pitch(&self, semitones: i32) -> AppResult<()> {
+        match self.status {
+            EngineStatus::Running | EngineStatus::Starting => {
+                let tx = self
+                    .control_tx
+                    .as_ref()
+                    .ok_or_else(|| AppError::AudioStream("音频引擎控制通道未初始化".into()))?;
+                tx.send(EngineControl::SetPitch(semitones))
+                    .await
+                    .map_err(|_| AppError::AudioStream("音频引擎控制通道已关闭".into()))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    pub async fn set_realtime_config(&self, config: RealtimeConfig) -> AppResult<()> {
+        match self.status {
+            EngineStatus::Running | EngineStatus::Starting => {
+                let tx = self
+                    .control_tx
+                    .as_ref()
+                    .ok_or_else(|| AppError::AudioStream("音频引擎控制通道未初始化".into()))?;
+                tx.send(EngineControl::SetRealtimeConfig(config))
+                    .await
+                    .map_err(|_| AppError::AudioStream("音频引擎控制通道已关闭".into()))
+            }
+            _ => Ok(()),
+        }
     }
 
     pub async fn stop(&mut self) -> AppResult<()> {
@@ -209,6 +424,7 @@ impl AudioEngine {
         if let Some(tx) = self.stop_tx.take() {
             let _ = tx.send(()).await;
         }
+        self.control_tx = None;
         for t in self.tasks.drain(..) {
             t.abort();
         }
@@ -227,7 +443,22 @@ impl Drop for AudioEngine {
     }
 }
 
-#[allow(dead_code)]
-fn touch_app_error_unused() {
-    let _ = AppError::Internal("noop".into());
+fn push_preroll(pre_roll: &mut VecDeque<f32>, samples: &[f32], capacity: usize) {
+    if capacity == 0 || samples.is_empty() {
+        return;
+    }
+    if samples.len() >= capacity {
+        pre_roll.clear();
+        pre_roll.extend(samples[samples.len() - capacity..].iter().copied());
+        return;
+    }
+
+    let overflow = pre_roll
+        .len()
+        .saturating_add(samples.len())
+        .saturating_sub(capacity);
+    for _ in 0..overflow {
+        pre_roll.pop_front();
+    }
+    pre_roll.extend(samples.iter().copied());
 }

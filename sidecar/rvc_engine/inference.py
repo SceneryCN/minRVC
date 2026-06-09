@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import inspect
 from pathlib import Path
 from typing import Optional
 
@@ -69,6 +70,12 @@ class RealRVCInferencer:
         self._content_vec: Optional[ContentVecExtractor] = None
         self._f0: Optional[F0Extractor] = None
         self._loaded = False
+        self._stream_tail_16k = np.zeros(0, dtype=np.float32)
+        self._stream_source_16k = np.zeros(0, dtype=np.float32)
+        self._stream_feats: Optional[np.ndarray] = None
+        self._stream_pitch: Optional[np.ndarray] = None
+        self._stream_pitchf: Optional[np.ndarray] = None
+        self._supports_stream_decode = False
 
         try:
             self._load_all()
@@ -85,6 +92,17 @@ class RealRVCInferencer:
     @property
     def target_sr(self) -> int:
         return self.meta.target_sr if self.meta else 40_000
+
+    def reset_stream(self) -> None:
+        """清空流式缓存。
+
+        音色、音高算法、检索比例或 F0 保护参数变化后，旧缓存对应的特征不再可靠。
+        """
+        self._stream_tail_16k = np.zeros(0, dtype=np.float32)
+        self._stream_source_16k = np.zeros(0, dtype=np.float32)
+        self._stream_feats = None
+        self._stream_pitch = None
+        self._stream_pitchf = None
 
     def _load_all(self) -> None:
         from rvc_engine.vendor import rvc as rvc_pkg
@@ -147,6 +165,8 @@ class RealRVCInferencer:
         net_g.eval().to(self.device)
         net_g = net_g.half() if self.is_half else net_g.float()
         self._net_g = net_g
+        self._supports_stream_decode = _supports_stream_decode(net_g)
+        logger.info(f"RVC Generator realtime crop={self._supports_stream_decode}")
 
     def _load_optional_index(self) -> None:
         if self.index_path is None or not self.index_path.exists():
@@ -198,6 +218,9 @@ class RealRVCInferencer:
         out_sr: int,
         pitch_semitones: int,
         index_rate: float = 0.5,
+        rms_mix_rate: float = 0.25,
+        protect: float = 0.33,
+        f0_filter_radius: int = 3,
     ) -> np.ndarray:
         """对一段已经包含足够上下文的 PCM 做 RVC 推理。
 
@@ -206,87 +229,292 @@ class RealRVCInferencer:
         if not self._loaded or self.meta is None or self._net_g is None:
             return self._fallback_pitch_shift(pcm, in_sr, pitch_semitones)
 
-        import torch
-
         # 1) 重采样到 16kHz 给 ContentVec / RMVPE 用
         pcm_16k = _resample(pcm, in_sr, 16_000) if in_sr != 16_000 else pcm
         pcm_16k = pcm_16k.astype(np.float32)
 
-        # 2) ContentVec 特征
+        feats = self._extract_indexed_features(pcm_16k, index_rate)
+        if self.meta.if_f0:
+            pitch, pitchf = self._extract_f0(
+                pcm_16k,
+                pitch_semitones=pitch_semitones,
+                filter_radius=f0_filter_radius,
+                protect=protect,
+            )
+        else:
+            pitch = pitchf = None
+
+        audio_np = self._synthesize_from_features(feats, pitch, pitchf, out_sr)
+
+        if 0.0 < rms_mix_rate < 1.0:
+            audio_np = _apply_rms_mix(audio_np, pcm, in_sr, out_sr, rms_mix_rate)
+
+        return audio_np
+
+    def infer_stream(
+        self,
+        pcm: np.ndarray,
+        in_sr: int,
+        out_sr: int,
+        pitch_semitones: int,
+        index_rate: float = 0.5,
+        rms_mix_rate: float = 0.25,
+        protect: float = 0.33,
+        f0_filter_radius: int = 3,
+        context_seconds: float = 2.5,
+        overlap_seconds: float = 0.32,
+    ) -> np.ndarray:
+        """缓存式流式推理。
+
+        只对新 chunk 加少量左侧重叠重新提取 ContentVec/F0，旧帧从缓存中取。
+        Generator 使用 RVC 官方 realtime infer 暴露的 skip_head/return_length
+        只返回新 chunk 对应的音频；旧版 vendor 不支持该签名时自动回退整段窗口解码。
+        """
+        if not self._loaded or self.meta is None or self._net_g is None:
+            return self._fallback_pitch_shift(pcm, in_sr, pitch_semitones)
+
+        pcm_16k = _resample(pcm, in_sr, 16_000) if in_sr != 16_000 else pcm
+        pcm_16k = pcm_16k.astype(np.float32)
+        if pcm_16k.size == 0:
+            return np.zeros(0, dtype=np.float32)
+
+        prefix = self._stream_tail_16k
+        compute_pcm = (
+            np.concatenate([prefix, pcm_16k]) if prefix.size else pcm_16k
+        ).astype(np.float32)
+
+        feats_compute = self._extract_indexed_features(compute_pcm, index_rate)
+        new_feat_count = _estimate_tail_count(
+            total_count=feats_compute.shape[0],
+            total_samples=compute_pcm.shape[0],
+            new_samples=pcm_16k.shape[0],
+        )
+        new_feats = feats_compute[-new_feat_count:]
+
+        if self.meta.if_f0:
+            pitch_compute, pitchf_compute = self._extract_f0(
+                compute_pcm,
+                pitch_semitones=pitch_semitones,
+                filter_radius=f0_filter_radius,
+                protect=protect,
+            )
+            new_pitch_count = _estimate_tail_count(
+                total_count=pitch_compute.shape[0],
+                total_samples=compute_pcm.shape[0],
+                new_samples=pcm_16k.shape[0],
+            )
+            new_pitch = pitch_compute[-new_pitch_count:]
+            new_pitchf = pitchf_compute[-new_pitch_count:]
+        else:
+            new_pitch = new_pitchf = None
+
+        max_feat_frames = max(4, int(max(0.1, context_seconds) * 50))
+        max_pitch_frames = max(8, int(max(0.1, context_seconds) * 100))
+        self._stream_feats = _append_frames(self._stream_feats, new_feats, max_feat_frames)
+        if self.meta.if_f0 and new_pitch is not None and new_pitchf is not None:
+            self._stream_pitch = _append_frames(
+                self._stream_pitch,
+                new_pitch.astype(np.int64),
+                max_pitch_frames,
+            )
+            self._stream_pitchf = _append_frames(
+                self._stream_pitchf,
+                new_pitchf.astype(np.float32),
+                max_pitch_frames,
+            )
+
+        max_source_samples = max(1600, int(max(0.1, context_seconds) * 16_000))
+        self._stream_source_16k = _append_audio(
+            self._stream_source_16k,
+            pcm_16k,
+            max_source_samples,
+        )
+        max_overlap = max(0, int(max(0.0, overlap_seconds) * 16_000))
+        self._stream_tail_16k = (
+            compute_pcm[-max_overlap:].copy() if max_overlap > 0 else np.zeros(0, dtype=np.float32)
+        )
+
+        if self._stream_feats is None or self._stream_feats.size == 0:
+            return np.zeros(int(round(pcm_16k.shape[0] * out_sr / 16_000)), dtype=np.float32)
+
+        audio_np = self._synthesize_from_features(
+            self._stream_feats,
+            self._stream_pitch if self.meta.if_f0 else None,
+            self._stream_pitchf if self.meta.if_f0 else None,
+            out_sr,
+            tail_frames_100hz=(
+                new_pitch.shape[0]
+                if self.meta.if_f0 and new_pitch is not None
+                else new_feats.shape[0] * 2
+            ),
+        )
+
+        if 0.0 < rms_mix_rate < 1.0:
+            audio_np = _apply_rms_mix(
+                audio_np,
+                self._stream_source_16k,
+                16_000,
+                out_sr,
+                rms_mix_rate,
+            )
+
+        target_out_len = int(round(pcm_16k.shape[0] * out_sr / 16_000))
+        if audio_np.shape[0] < target_out_len:
+            audio_np = np.concatenate(
+                [audio_np, np.zeros(target_out_len - audio_np.shape[0], dtype=np.float32)]
+            )
+        return audio_np[-target_out_len:]
+
+    def _extract_indexed_features(
+        self,
+        pcm_16k: np.ndarray,
+        index_rate: float,
+    ) -> np.ndarray:
         assert self._content_vec is not None
-        feats = self._content_vec.extract(pcm_16k)  # [T, D] numpy
-        feats_t = torch.from_numpy(feats).to(self.device)
+        feats = self._content_vec.extract(pcm_16k).astype(np.float32)
+        if self._faiss_index is None or self._big_npy is None or index_rate <= 0:
+            return feats
+        try:
+            _, ix = self._faiss_index.search(feats, k=8)
+            weights = np.square(
+                1
+                / (
+                    np.linalg.norm(
+                        self._big_npy[ix] - feats[:, None],
+                        axis=-1,
+                    )
+                    + 1e-8
+                )
+            )
+            weights /= weights.sum(axis=-1, keepdims=True)
+            searched = (
+                self._big_npy[ix] * np.expand_dims(weights, axis=-1)
+            ).sum(axis=-2)
+            return ((1 - index_rate) * feats + index_rate * searched).astype(np.float32)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Faiss 检索失败，跳过: {e}")
+            return feats
+
+    def _extract_f0(
+        self,
+        pcm_16k: np.ndarray,
+        pitch_semitones: int,
+        filter_radius: int,
+        protect: float,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        assert self._f0 is not None
+        return self._f0.extract(
+            pcm_16k,
+            pitch_semitones=pitch_semitones,
+            filter_radius=filter_radius,
+            protect=protect,
+        )
+
+    def _synthesize_from_features(
+        self,
+        feats: np.ndarray,
+        pitch: Optional[np.ndarray],
+        pitchf: Optional[np.ndarray],
+        out_sr: int,
+        tail_frames_100hz: Optional[int] = None,
+    ) -> np.ndarray:
+        assert self.meta is not None and self._net_g is not None
+        if feats.size == 0:
+            return np.zeros(0, dtype=np.float32)
+
+        import torch
+
+        feats_t = torch.from_numpy(feats.astype(np.float32)).to(self.device)
         feats_t = feats_t.half() if self.is_half else feats_t.float()
-        feats_t = feats_t.unsqueeze(0)  # [1, T, D]
-
-        # 3) Faiss 检索增强（可选）
-        if self._faiss_index is not None and self._big_npy is not None and index_rate > 0:
-            feats_np = feats.astype(np.float32)
-            try:
-                _, ix = self._faiss_index.search(feats_np, k=8)
-                # 距离权重
-                weights = np.square(1 / (np.linalg.norm(
-                    self._big_npy[ix] - feats_np[:, None],
-                    axis=-1,
-                ) + 1e-8))
-                weights /= weights.sum(axis=-1, keepdims=True)
-                searched = (
-                    self._big_npy[ix] * np.expand_dims(weights, axis=-1)
-                ).sum(axis=-2)
-                searched_t = torch.from_numpy(searched).to(self.device)
-                searched_t = searched_t.half() if self.is_half else searched_t.float()
-                searched_t = searched_t.unsqueeze(0)
-                feats_t = (1 - index_rate) * feats_t + index_rate * searched_t
-            except Exception as e:  # noqa: BLE001
-                logger.debug(f"Faiss 检索失败，跳过: {e}")
-
-        # 4) 上采样特征到 RVC 期望的帧率（双倍插值）
+        feats_t = feats_t.unsqueeze(0)
         feats_t = torch.nn.functional.interpolate(
             feats_t.permute(0, 2, 1), scale_factor=2
         ).permute(0, 2, 1)
         t_feats = feats_t.shape[1]
 
-        # 5) F0 提取
         if self.meta.if_f0:
-            assert self._f0 is not None
-            f0_coarse_np, f0_cont_np = self._f0.extract(
-                pcm_16k, pitch_semitones=pitch_semitones
-            )
-            # 帧数对齐
-            f0_coarse_np = _align_length(f0_coarse_np, t_feats)
-            f0_cont_np = _align_length(f0_cont_np, t_feats)
-            pitch_t = torch.from_numpy(f0_coarse_np).to(self.device).long().unsqueeze(0)
-            pitchf_t = torch.from_numpy(f0_cont_np).to(self.device)
+            if pitch is None or pitchf is None:
+                pitch = np.ones(t_feats, dtype=np.int64)
+                pitchf = np.zeros(t_feats, dtype=np.float32)
+            pitch = _align_length(pitch, t_feats)
+            pitchf = _align_length(pitchf, t_feats)
+            pitch_t = torch.from_numpy(pitch).to(self.device).long().unsqueeze(0)
+            pitchf_t = torch.from_numpy(pitchf).to(self.device)
             pitchf_t = pitchf_t.half() if self.is_half else pitchf_t.float()
             pitchf_t = pitchf_t.unsqueeze(0)
         else:
             pitch_t = pitchf_t = None
 
-        # 6) RVC 推理
         sid_t = torch.tensor([0], device=self.device).long()
         feats_len_t = torch.tensor([t_feats], device=self.device).long()
+        skip_head_t = return_length_t = return_length2_t = None
+        if tail_frames_100hz is not None and self._supports_stream_decode:
+            return_len = max(1, min(t_feats, int(tail_frames_100hz)))
+            skip_head = max(0, t_feats - return_len)
+            skip_head_t = torch.tensor(skip_head, device=self.device).long()
+            return_length_t = torch.tensor(return_len, device=self.device).long()
+            return_length2_t = torch.tensor(return_len, device=self.device).long()
 
         with torch.no_grad():
             if self.meta.if_f0:
-                audio = self._net_g.infer(
-                    feats_t,
-                    feats_len_t,
-                    pitch_t,
-                    pitchf_t,
-                    sid_t,
-                )[0][0, 0]
+                if skip_head_t is not None:
+                    try:
+                        audio = self._net_g.infer(
+                            feats_t,
+                            feats_len_t,
+                            pitch_t,
+                            pitchf_t,
+                            sid_t,
+                            skip_head_t,
+                            return_length_t,
+                            return_length2_t,
+                        )[0][0, 0]
+                    except TypeError as e:
+                        logger.warning(f"Generator 不支持 realtime crop，回退整段解码: {e}")
+                        self._supports_stream_decode = False
+                        audio = self._net_g.infer(
+                            feats_t,
+                            feats_len_t,
+                            pitch_t,
+                            pitchf_t,
+                            sid_t,
+                        )[0][0, 0]
+                else:
+                    audio = self._net_g.infer(
+                        feats_t,
+                        feats_len_t,
+                        pitch_t,
+                        pitchf_t,
+                        sid_t,
+                    )[0][0, 0]
             else:
-                audio = self._net_g.infer(
-                    feats_t,
-                    feats_len_t,
-                    sid_t,
-                )[0][0, 0]
+                if skip_head_t is not None:
+                    try:
+                        audio = self._net_g.infer(
+                            feats_t,
+                            feats_len_t,
+                            sid_t,
+                            skip_head_t,
+                            return_length_t,
+                            return_length2_t,
+                        )[0][0, 0]
+                    except TypeError as e:
+                        logger.warning(f"Generator 不支持 realtime crop，回退整段解码: {e}")
+                        self._supports_stream_decode = False
+                        audio = self._net_g.infer(
+                            feats_t,
+                            feats_len_t,
+                            sid_t,
+                        )[0][0, 0]
+                else:
+                    audio = self._net_g.infer(
+                        feats_t,
+                        feats_len_t,
+                        sid_t,
+                    )[0][0, 0]
         audio_np = audio.float().cpu().numpy().astype(np.float32)
-
-        # 7) 输出端重采样
         if self.meta.target_sr != out_sr:
             audio_np = _resample(audio_np, self.meta.target_sr, out_sr)
-
         return audio_np
 
     # ---------- fallback ----------
@@ -336,3 +564,67 @@ def _align_length(arr: np.ndarray, target_len: int) -> np.ndarray:
         return arr[:target_len]
     pad = target_len - arr.shape[0]
     return np.concatenate([arr, np.zeros(pad, dtype=arr.dtype)])
+
+
+def _append_frames(
+    old: Optional[np.ndarray],
+    new: np.ndarray,
+    max_frames: int,
+) -> np.ndarray:
+    if old is None or old.size == 0:
+        merged = new
+    elif new.size == 0:
+        merged = old
+    else:
+        merged = np.concatenate([old, new], axis=0)
+    if merged.shape[0] > max_frames:
+        merged = merged[-max_frames:]
+    return merged.copy()
+
+
+def _append_audio(old: np.ndarray, new: np.ndarray, max_samples: int) -> np.ndarray:
+    merged = new if old.size == 0 else np.concatenate([old, new])
+    if merged.shape[0] > max_samples:
+        merged = merged[-max_samples:]
+    return merged.astype(np.float32, copy=True)
+
+
+def _estimate_tail_count(
+    total_count: int,
+    total_samples: int,
+    new_samples: int,
+) -> int:
+    if total_count <= 0:
+        return 0
+    if total_samples <= 0 or new_samples >= total_samples:
+        return total_count
+    ratio = max(0.0, min(1.0, new_samples / total_samples))
+    return max(1, min(total_count, int(round(total_count * ratio))))
+
+
+def _apply_rms_mix(
+    audio_np: np.ndarray,
+    source: np.ndarray,
+    source_sr: int,
+    out_sr: int,
+    rms_mix_rate: float,
+) -> np.ndarray:
+    src = _resample(source, source_sr, out_sr) if source_sr != out_sr else source.astype(np.float32)
+    src = _align_length(src, audio_np.shape[0])
+    src_rms = float(np.sqrt(np.mean(np.square(src)) + 1e-8))
+    out_rms = float(np.sqrt(np.mean(np.square(audio_np)) + 1e-8))
+    if src_rms <= 1e-5 or out_rms <= 1e-5:
+        return audio_np
+    target_rms = out_rms * (1.0 - rms_mix_rate) + src_rms * rms_mix_rate
+    return (audio_np * (target_rms / out_rms)).astype(np.float32)
+
+
+def _supports_stream_decode(net_g) -> bool:
+    try:
+        sig = inspect.signature(net_g.infer)
+    except (TypeError, ValueError):
+        return False
+    params = sig.parameters
+    if any(p.kind == p.VAR_POSITIONAL for p in params.values()):
+        return True
+    return {"skip_head", "return_length"}.issubset(params)

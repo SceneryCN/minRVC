@@ -1,184 +1,226 @@
-# 声变 (RVC Voice Changer)
+# Fuck RVC
 
-> 傻瓜式实时 RVC 变声器，基于 **Tauri 2 + Rust + Python sidecar**。
+> 免费、开源、UI 更好看的 RVC 桌面实时变声器。  
+> 基于 Tauri 2 + Rust 音频引擎 + Python RVC sidecar。
 
-5 种预置音色、一键启动，配合 VB-Cable 虚拟声卡接入直播链路：
+这个项目的出发点很直接：市面上很多 RVC 变声软件本质上也是把 RVC 套一层壳，然后开始收费。那我也套一层壳，但不收费，尽量把 UI、交互、模型导入、素材处理、训练入口和常见软件问题一起做好。
 
+项目目标不是重新发明 RVC，而是把开源 RVC 生态整理成一个更顺手的桌面工具：
+
+```text
+Mic -> Fuck RVC (Rust audio + DSP + Python RVC) -> 声卡 / 虚拟通道 -> OBS / StudioOne / Discord
 ```
-Mic → 声变 (Rust 音频引擎 + Python RVC 推理) → VB-Cable → StudioOne / OBS
-```
 
----
+## 当前功能
 
-## 功能
+- 实时 RVC 变声：音色卡、音高、输入/输出设备、实时电平。
+- 自定义音色：导入 `.pth`，可选 `.index`，应用自动复制并维护 manifest。
+- 常规设置：响应阈值、声线粗细、检索特征占比、输入源响度融合、清辅音保护、响度、音高算法、采样率、chunk、buffer、crossfade 等。
+- 音高模型管理：RMVPE 模型状态、下载入口、加载本地 `rmvpe.pt`。
+- 缓存式流式推理：缓存 ContentVec / F0 / Faiss 特征窗口，减少重复计算。
+- 降噪 / VAD：实时降噪、静音跳过，减少无意义 GPU 推理。
+- 素材处理：Demucs、RoFormer、MDX23C 人声分离，支持进度、取消、打开输出目录。
+- 模型训练页：训练包下载入口、加载本地 RVC-WebUI 训练包目录、GPU 检测、训练参数、预训练 G/D 权重入口和任务状态。
+- 帮助页：模型下载清单、训练包地址、虚拟声卡/声卡路由说明。
+- i18n：中文 / English。
+- 主题：light / dark / system。
 
-- ✅ 5 个预置音色按钮：御姐 / 萝莉 / 小男孩 / 奶青 / 青叔
-- ✅ 自动检测虚拟声卡（VB-Cable / BlackHole / VoiceMeeter）
-- ✅ 实时 VU 表（输入 / 输出）
-- ✅ 音高调节（±24 半音）
-- ✅ 模型本地导入 / 切换
-- ✅ Windows + macOS 跨平台（VB-Cable 替换为 BlackHole）
-- ✅ **实时降噪（RNNoise）+ VAD（Silero）**：纯 Rust，10ms 帧，把噪声挡在 RVC 之前
-- ✅ **离线人声分离（Demucs v4）**：从 BGM 里抠人声，给自训练 RVC 准备素材
+## 不内置大模型
+
+RVC 相关模型、HuBERT、RMVPE、训练包、人声分离模型都很大，而且第三方音色模型版权情况复杂。所以本项目默认不把这些东西塞进安装包。
+
+用户可以在帮助页打开下载地址，下载后按类型加载：
+
+- `hubert_base.pt`：RVC 推理基础模型，体积较大；当前开发环境可通过 `sidecar/scripts/setup_rvc.py` 准备，应用内 HuBERT 单独导入入口还没做。
+- `rmvpe.pt`：RMVPE 音高模型，可在「实时变声 -> 常规设置 -> 音高设置」加载。
+- `.pth`：RVC 音色模型主体。
+- `.index`：RVC 检索增强索引，可选。
+- RVC-WebUI 训练包：解压后在“模型训练”页加载目录。
 
 ## 技术栈
 
-| 层 | 选型 | 备注 |
+| 层 | 技术 | 说明 |
 |---|---|---|
-| UI | React 18 + TypeScript + Vite | 严格 TS、i18n、CSS Modules |
-| Shell | Tauri 2 | Windows / macOS 桌面 |
-| 音频 | Rust + cpal + ringbuf | WASAPI / CoreAudio，低延迟 SPSC |
-| 推理 | Python sidecar (FastAPI + WebSocket) | RVC + RMVPE + HiFiGAN |
-| 通信 | 本地 WebSocket（二进制 PCM f32） | 单进程、无 Python GIL 阻塞前端 |
+| UI | React + TypeScript + Vite | 桌面应用界面、i18n、CSS Modules |
+| Shell | Tauri 2 | Windows / macOS 桌面外壳 |
+| 音频 | Rust + cpal + ringbuf | 采集、输出、低延迟 SPSC 环形缓冲 |
+| DSP | Rust | 降噪、VAD、音频状态 |
+| 推理 | Python + FastAPI + WebSocket | RVC / F0 / ContentVec / Demucs / audio-separator |
+| 模型 | PyTorch | RVC、RMVPE、FCPE、Crepe、Demucs、RoFormer、MDX23C |
 
-详见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
-
----
+详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ## 开发环境
 
 需要：
 
-- Node ≥ 20、pnpm ≥ 9
-- Rust ≥ 1.77
-- Python 3.10–3.11
-- NVIDIA GPU + CUDA 12.1（推荐，CPU 模式仅供调试）
+- Node >= 20
+- pnpm >= 9
+- Rust >= 1.77
+- Python 3.10 或 3.11
+- NVIDIA CUDA GPU 推荐；CPU 仅适合调试
 
 ```bash
-# 1. 前端依赖
 pnpm install
 
-# 2. Python sidecar 依赖（GPU）
 cd sidecar
-python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
 
-# 3. 一键下载 RVC 推理源码 + 基础模型（hubert_base.pt + rmvpe.pt）
+# 可选：专业人声分离模型后端（RoFormer / MDX23C）
+# 这类模型较大，且 audio-separator 依赖更新快；建议在确认需要时单独安装。
+pip install audio-separator
+
+# 下载最小 RVC 推理源码 + hubert_base.pt + rmvpe.pt
 python -m scripts.setup_rvc
 cd ..
 
-# 4. 启动开发模式（前端 + Tauri + sidecar 自动管理）
 pnpm tauri:dev
 ```
 
-> macOS 开发期可暂时不安装 PyTorch GPU 版（用 CPU），仅用于联调音频管线。
-> 真正出活儿需要 Windows + NVIDIA。
->
-> 没运行 setup 也能启动应用，只是会走 **pitch-shift 回退路径**（不真变声，仅变调），方便先验证音频路由。
+没有运行 setup 也能打开应用，但真实 RVC 推理会缺基础模型，部分路径会回退到 pitch-shift，仅适合验证音频路由。
 
----
+## 音频路由
 
-## 直播链路配置
+不一定必须安装虚拟声卡。
 
-1. 安装 [VB-Cable](https://vb-audio.com/Cable/)（详见 [`docs/VB-CABLE.md`](docs/VB-CABLE.md)）
-2. 在「声变」里：
-   - **麦克风** = 你的物理麦克风
-   - **虚拟声卡输出** = `CABLE Input (VB-Audio Virtual Cable)`
-3. 在 OBS / StudioOne 里：
-   - **麦克风源** = `CABLE Output (VB-Audio Virtual Cable)`
-4. 详见 [`docs/STUDIOONE-OBS.md`](docs/STUDIOONE-OBS.md)
+如果你的声卡、StudioOne、OBS 或宿主软件能直接接收本应用输出，可以直接使用现有声卡/loopback/虚拟通道。只有当目标软件只能选择“麦克风输入”，又听不到本应用输出时，才需要 VB-Cable / BlackHole / VoiceMeeter 这类虚拟声卡。
 
----
+参考：
 
-## 音色模型
+- [docs/VB-CABLE.md](docs/VB-CABLE.md)
+- [docs/STUDIOONE-OBS.md](docs/STUDIOONE-OBS.md)
 
-5 种预置音色对应的开源模型获取方式见 [`docs/MODELS.md`](docs/MODELS.md)。
+## 模型和训练
 
-简而言之：
-- 御姐 / 萝莉 / 青叔 / 小男孩 → 妙音 RVC 工坊（部分免费、部分付费）+ HuggingFace 大量开源
-- 奶青 → 没有完全匹配的预训练，建议自训练或用「奶樱」+ 微调
+音色模型导入规则：
 
-> ⚠️ 所有第三方模型版权状况复杂，**仅限学习研究**，商用务必自训练或获得授权。
+- `.pth` 是 RVC 音色模型主体，必需。
+- `.index` 是检索增强索引，可选；有它通常更像训练音色，但也可能带来音色过拟合或噪声。
+- 导入后应用会复制文件到本地模型目录，并更新 manifest。
 
----
+训练页当前提供：
 
-## 打包发布
+- 训练包下载入口。
+- 加载已解压的 RVC-WebUI 训练包目录。
+- 本机 GPU 检测，显示 CUDA / MPS / CPU 状态。
+- RVC v1/v2、epoch、batch size、采样率、F0 算法、保存间隔等训练参数。
+- 训练用预训练 G / D 权重入口。
+- 任务启动、轮询、取消、日志和产物路径展示。
 
-详见 [`docs/PACKAGING-WINDOWS.md`](docs/PACKAGING-WINDOWS.md)。两条路：
+G / D 权重不是最终音色模型。它们是训练用的预训练生成器 / 判别器权重，通常从 RVC-WebUI 相关 HuggingFace 资源下载，例如 `pretrained_v2/f0G40k.pth`、`pretrained_v2/f0D40k.pth`。如果不懂，可以先不选。
 
-**A. 本机 Windows 一键打包**
+训练任务目前是“桌面入口 + sidecar 任务管理 + 外部 RVC-WebUI 训练包桥接”。不同训练包脚本参数不完全一致，所以仍需要用真实 RVC-WebUI 包做更多兼容测试。完整的“准备素材 -> 预处理 -> 特征提取 -> 训练 -> 生成 index -> 导入音色”还没有完全产品化串起来。
 
-```powershell
-pnpm bundle:windows
-# → src-tauri/target/release/bundle/msi/声变_*.msi
-# → src-tauri/target/release/bundle/nsis/声变_*-setup.exe
-```
+## 参考与依赖项目
 
-**B. GitHub Actions 远程出包**（不用买 Windows）
+这个项目站在一批开源项目上。核心参考和依赖如下：
 
-```bash
-git tag v0.1.0 && git push origin v0.1.0
-# → Actions 自动跑 windows-latest + macos-14 → 草稿 Release
-```
+| 项目 | 链接 | 用途 |
+|---|---|---|
+| RVC-Project / Retrieval-based-Voice-Conversion-WebUI | https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI | RVC 官方 WebUI、训练流程、推理模型结构。本项目 vendor 了最小推理源码子集。 |
+| RVC-Project / Retrieval-based-Voice-Conversion | https://github.com/RVC-Project/Retrieval-based-Voice-Conversion | RVC 新版项目方向参考。 |
+| HuBERT / ContentVec 权重 | https://huggingface.co/lj1995/VoiceConversionWebUI | RVC 特征提取基础模型下载来源。 |
+| RMVPE 权重 | https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt | RMVPE 音高算法权重。 |
+| PyTorch | https://pytorch.org/ | Python 侧模型推理和训练依赖。 |
+| torchcrepe | https://github.com/maxrmorrison/torchcrepe | Crepe F0 算法实现。 |
+| torchfcpe | https://github.com/CNChTu/FCPE | FCPE F0 算法实现。 |
+| Demucs | https://github.com/facebookresearch/demucs | 内置人声分离模型。 |
+| python-audio-separator | https://github.com/nomadkaraoke/python-audio-separator | RoFormer / MDX23C / UVR 系专业人声分离后端。 |
+| Tauri | https://tauri.app/ | 桌面应用外壳。 |
+| cpal | https://github.com/RustAudio/cpal | Rust 音频采集和输出。 |
+| ringbuf | https://github.com/agerasev/ringbuf | 音频线程 SPSC 环形缓冲。 |
+| FastAPI | https://fastapi.tiangolo.com/ | Python sidecar HTTP / WebSocket 服务。 |
+| lucide-react | https://lucide.dev/ | UI 图标。 |
 
-CI workflow 已写好在 [`.github/workflows/release.yml`](.github/workflows/release.yml)。
+### 关于 RVC 官方代码
 
-> **关键约束**：PyInstaller 不能跨平台，**打 Windows 包必须有 Windows 环境**（CI runner 即可）。
-> macOS 用 `pnpm bundle:macos` 一键出 `.dmg`。
-
----
-
-## 目录结构
-
-```
-.
-├── src/                         # React 前端
-│   ├── app/                     # 顶层组件
-│   ├── components/<name>/index.tsx  # 可复用组件（kebab-case + index 入口）
-│   ├── hooks/                   # 自定义 hooks
-│   ├── utils/                   # 纯工具函数
-│   ├── i18n/                    # zh-CN / en
-│   ├── styles/                  # 全局变量与 reset
-│   ├── constants/               # 5 个音色等业务常量
-│   └── types/                   # 与 Rust 端对齐的类型
-├── src-tauri/                   # Rust 后端
-│   └── src/
-│       ├── audio/               # cpal 采集 / 输出 / SPSC 环形缓冲
-│       ├── ipc/                 # WebSocket 客户端 → Python sidecar
-│       ├── sidecar/             # Python 进程生命周期
-│       ├── commands/            # Tauri invoke 入口
-│       ├── error.rs / state.rs / lib.rs / main.rs
-├── sidecar/                     # Python 推理服务
-│   ├── rvc_engine/
-│   │   ├── server.py            # FastAPI + WS
-│   │   ├── pipeline.py          # 推理总流水线
-│   │   ├── feature_extract.py   # HuBERT
-│   │   ├── f0_extract.py        # RMVPE
-│   │   ├── inference.py         # RVC (TODO 接入官方代码)
-│   │   ├── sola.py              # 块拼接
-│   │   ├── vad.py               # 静音检测
-│   │   └── config.py
-│   └── build_sidecar.py         # PyInstaller 打包
-└── docs/
-    ├── ARCHITECTURE.md
-    ├── PROTOCOL.md              # Tauri ↔ sidecar IPC 协议
-    ├── MODELS.md                # 5 种音色获取指南
-    ├── VB-CABLE.md
-    └── STUDIOONE-OBS.md
-```
-
----
+本项目没有声称重新发明 RVC。当前真实 RVC 推理链路参考并裁剪了 RVC-WebUI 的推理相关源码，例如 `infer_pack/models.py`、`rmvpe.py` 等；Rust 音频引擎、Tauri 命令、Python sidecar 协议、UI、模型导入、素材处理、训练入口是本项目自己的工程实现。
 
 ## 当前实现状态
 
 | 模块 | 状态 |
 |---|---|
-| Rust 音频管线（cpal 采集/输出/环形缓冲/虚拟声卡识别） | ✅ |
-| Tauri ↔ Python WebSocket 二进制流 | ✅ |
-| Python sidecar 框架（FastAPI / WS / SOLA / VAD / Pipeline） | ✅ |
-| **真实 RVC 推理（ContentVec + RMVPE + SynthesizerTrn v1/v2 + Faiss）** | ✅ vendor 上游源码 + 流式上下文 |
-| **实时降噪（nnnoiseless）+ VAD（Silero ONNX）** | ✅ Rust 原生，10ms 帧，可调强度/阈值 |
-| **离线人声分离（Demucs v4：htdemucs / htdemucs_ft / mdx_extra）** | ✅ 素材实验室 tab，进度/取消/打开文件夹 |
-| 5 个预置音色按钮 + 模型导入 | ✅（无模型时回退到 pitch-shift） |
-| 三主题（light/dark/system）+ lucide 图标系统 | ✅ |
-| Tab 切换（实时变声 / 素材实验室） | ✅ |
-| PyInstaller sidecar 打包脚本（含 vendor 收集） | ✅ |
-| 一键 setup 脚本（vendor 源码 + 基础模型下载） | ✅ |
-| 图标 / 应用签名 | ❌ 需补 |
+| 实时变声 UI | 已实现 |
+| Rust 音频采集/输出/ring buffer | 已实现 |
+| Tauri <-> Python WebSocket PCM 流 | 已实现 |
+| RVC 真实推理 | 已实现基础路径，仍需更多模型兼容测试 |
+| RMVPE / FCPE / Crepe | 已接入；RMVPE / Crepe 在 CUDA 可用时会尝试 GPU，FCPE 使用当前配置设备，实际表现取决于 torchfcpe 版本 |
+| 音色模型导入 | 已实现 |
+| `.index` 导入 | 已实现 |
+| 人声分离 Demucs | 已实现 |
+| RoFormer / MDX23C | 已通过可选 audio-separator 后端接入，首次使用按需下载模型 |
+| 模型训练页 | 已有入口、GPU 检测、训练包加载、参数表单、G/D 权重入口；完整训练链路仍需实测适配 |
+| 缓存式流式推理 | 已实现 ContentVec / F0 / Faiss 滚动缓存；Generator 使用 RVC 官方 realtime infer 的 skip_head / return_length 裁剪旧上下文输出 |
+| 打包发布 | 基础脚本已有，仍需图标、签名、安装包验证 |
 
-> 启动时按 voice 自动判断使用真实 RVC 还是 pitch-shift fallback，**两条路径都能即时切换**，方便先把整条音频管线（设备 → 缓冲 → IPC → 输出）跑通再上模型。
+## 还没完成
 
----
+这些是目前距离稳定发布还需要补的点：
+
+- HuBERT / ContentVec 基础模型还缺应用内导入和状态检测入口。
+- RVC 训练包桥接还需要用真实 RVC-WebUI 包完整跑通预处理、特征提取、训练、index 生成和音色导入。
+- 预训练 G / D 权重只提供本地选择入口，还没有下载清单和自动匹配采样率 / v1 v2 的逻辑。
+- audio-separator / UVR 系模型首次下载和不同版本依赖还需要更多真实环境测试。
+- Generator 已使用官方 realtime 裁剪接口减少旧上下文输出解码；如果用户加载的 vendor fork 不支持该签名，会自动回退整段窗口解码。
+- 缺少真实模型矩阵测试：不同 `.pth` 结构、采样率、f0 配置、`.index` 质量都需要覆盖。
+- macOS MPS、NVIDIA CUDA、CPU 的性能策略还需要按设备实测。
+- 打包发布还缺签名、安装包验证、首次启动资源检查和错误提示打磨。
+
+## 目录结构
+
+```text
+.
+├── src/                         # React 前端
+│   ├── app/
+│   ├── components/
+│   ├── hooks/
+│   ├── i18n/
+│   ├── styles/
+│   └── types/
+├── src-tauri/                   # Rust / Tauri 后端
+│   └── src/
+│       ├── audio/
+│       ├── commands/
+│       ├── ipc/
+│       ├── sidecar/
+│       └── state.rs
+├── sidecar/                     # Python 推理服务
+│   ├── rvc_engine/
+│   │   ├── server.py
+│   │   ├── pipeline.py
+│   │   ├── inference.py
+│   │   ├── f0_extract.py
+│   │   ├── feature_extract.py
+│   │   ├── separate.py
+│   │   ├── train.py
+│   │   └── vendor/
+│   └── scripts/setup_rvc.py
+└── docs/
+```
+
+## 打包发布
+
+参考 [docs/PACKAGING-WINDOWS.md](docs/PACKAGING-WINDOWS.md)。
+
+```powershell
+pnpm bundle:windows
+```
+
+macOS：
+
+```bash
+pnpm bundle:macos
+```
+
+发布前建议补齐：
+
+- 应用图标。
+- Windows/macOS 签名。
+- HuBERT / RMVPE / 音色模型缺失提示。
+- 首次启动下载 / 加载引导。
+- 多设备实测。
 
 ## License
 

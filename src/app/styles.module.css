@@ -15,6 +15,88 @@
   position: relative;
 }
 
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  background:
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--color-accent) 18%, transparent), transparent 36%),
+    var(--color-bg);
+  pointer-events: none;
+  animation: splash-out 1500ms cubic-bezier(0.2, 0, 0.2, 1) forwards;
+}
+
+.splashMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-cyan));
+  color: white;
+  box-shadow: var(--shadow-glow);
+  animation: splash-mark 900ms var(--ease-spring) both;
+}
+
+.splashMark svg {
+  width: 34px;
+  height: 34px;
+  stroke-width: 2.1;
+}
+
+.splashTitle {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-2xl);
+  font-weight: 800;
+  letter-spacing: 0;
+  animation: splash-title 900ms 120ms var(--ease-spring) both;
+}
+
+@keyframes splash-mark {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes splash-title {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes splash-out {
+  0%,
+  62% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash {
+    display: none;
+  }
+}
+
 /* 装饰性流光层（GPU 合成，永远不触发 layout） */
 .shell::before {
   content: '';
@@ -218,20 +300,12 @@
 
 .voiceGrid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: var(--space-4);
 }
 
-@media (max-width: 1100px) {
-  .voiceGrid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 720px) {
-  .voiceGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.customVoiceWrap {
+  margin-top: var(--space-4);
 }
 
 .devicesRow {
@@ -347,6 +421,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 84px;
+  justify-content: center;
   padding: 6px 12px;
   font-size: var(--font-size-xs);
   font-weight: 500;
@@ -359,13 +435,39 @@
     color var(--transition-fast);
 }
 
-.refreshBtn:hover {
+.refreshBtn:hover:not(:disabled) {
   border-color: var(--color-border-hover);
   color: var(--color-text-primary);
+}
+
+.refreshBtn:disabled {
+  cursor: default;
+  opacity: 0.78;
+}
+
+.refreshBtn[data-state='loading'] {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+
+.refreshBtn[data-state='done'] {
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 38%, transparent);
+  background: color-mix(in srgb, var(--color-success) 8%, var(--color-bg-elevated));
 }
 
 .refreshBtn svg {
   width: 12px;
   height: 12px;
   stroke-width: 2.5;
+}
+
+.refreshBtn[data-state='loading'] svg {
+  animation: refresh-spin 900ms linear infinite;
+}
+
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

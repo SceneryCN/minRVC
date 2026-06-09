@@ -1,14 +1,14 @@
 //! WebSocket 客户端：连接到本地 Python sidecar。
 
 use crate::error::{AppError, AppResult};
+use crate::audio::engine::RealtimeConfig;
 use futures_util::stream::SplitSink;
 use futures_util::stream::SplitStream;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tokio::net::TcpStream;
-use tokio_tungstenite::{
-    tungstenite::Message, MaybeTlsStream, WebSocketStream,
-};
+use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -20,12 +20,16 @@ enum ClientMessage<'a> {
         pitch: i32,
         in_sr: u32,
         out_sr: u32,
+        config: &'a RealtimeConfig,
     },
     SetVoice {
         voice_id: &'a str,
     },
     SetPitch {
         pitch: i32,
+    },
+    SetRealtimeConfig {
+        config: &'a RealtimeConfig,
     },
 }
 
@@ -70,12 +74,14 @@ impl SidecarClient {
         pitch: i32,
         in_sr: u32,
         out_sr: u32,
+        config: &RealtimeConfig,
     ) -> AppResult<()> {
         let msg = ClientMessage::Init {
             voice_id,
             pitch,
             in_sr,
             out_sr,
+            config,
         };
         let json = serde_json::to_string(&msg)?;
         self.inner
@@ -83,6 +89,31 @@ impl SidecarClient {
             .await
             .map_err(|e| AppError::WebSocket(e.to_string()))?;
         Ok(())
+    }
+
+    pub async fn wait_ready(&mut self, timeout: Duration) -> AppResult<()> {
+        tokio::time::timeout(timeout, async {
+            loop {
+                let msg = self
+                    .inner
+                    .next()
+                    .await
+                    .ok_or_else(|| AppError::WebSocket("sidecar 在 ready 前关闭连接".into()))?;
+                match parse_server_message(msg)? {
+                    ServerMessage::Ready => return Ok(()),
+                    ServerMessage::Status { state } => {
+                        tracing::debug!("sidecar init status: {state}");
+                    }
+                    ServerMessage::Error { message } => {
+                        return Err(AppError::WebSocket(format!(
+                            "sidecar init error: {message}"
+                        )));
+                    }
+                }
+            }
+        })
+        .await
+        .map_err(|_| AppError::WebSocket("等待 sidecar ready 超时".into()))?
     }
 
     pub fn split(self) -> (SidecarSender, SidecarReceiver) {
@@ -106,6 +137,20 @@ impl SidecarSender {
 
     pub async fn set_voice(&mut self, voice_id: &str) -> AppResult<()> {
         let msg = ClientMessage::SetVoice { voice_id };
+        self.send_control(msg).await
+    }
+
+    pub async fn set_pitch(&mut self, pitch: i32) -> AppResult<()> {
+        let msg = ClientMessage::SetPitch { pitch };
+        self.send_control(msg).await
+    }
+
+    pub async fn set_realtime_config(&mut self, config: &RealtimeConfig) -> AppResult<()> {
+        let msg = ClientMessage::SetRealtimeConfig { config };
+        self.send_control(msg).await
+    }
+
+    async fn send_control(&mut self, msg: ClientMessage<'_>) -> AppResult<()> {
         let json = serde_json::to_string(&msg)?;
         self.sink
             .send(Message::Text(json.into()))
@@ -113,15 +158,18 @@ impl SidecarSender {
             .map_err(|e| AppError::WebSocket(e.to_string()))?;
         Ok(())
     }
+}
 
-    pub async fn set_pitch(&mut self, pitch: i32) -> AppResult<()> {
-        let msg = ClientMessage::SetPitch { pitch };
-        let json = serde_json::to_string(&msg)?;
-        self.sink
-            .send(Message::Text(json.into()))
-            .await
-            .map_err(|e| AppError::WebSocket(e.to_string()))?;
-        Ok(())
+fn parse_server_message(
+    msg: Result<Message, tokio_tungstenite::tungstenite::Error>,
+) -> AppResult<ServerMessage> {
+    match msg {
+        Ok(Message::Text(text)) => serde_json::from_str::<ServerMessage>(&text)
+            .map_err(|e| AppError::WebSocket(format!("反序列化失败: {e}"))),
+        Ok(Message::Binary(_)) => Err(AppError::WebSocket("sidecar ready 前返回了音频数据".into())),
+        Ok(Message::Close(_)) => Err(AppError::WebSocket("sidecar 关闭连接".into())),
+        Ok(_) => Err(AppError::WebSocket("sidecar 返回了未知控制帧".into())),
+        Err(e) => Err(AppError::WebSocket(e.to_string())),
     }
 }
 
@@ -140,14 +188,12 @@ impl SidecarReceiver {
                 }
                 Some(Ok(SidecarFrame::Audio(samples)))
             }
-            Ok(Message::Text(text)) => {
-                match serde_json::from_str::<ServerMessage>(&text) {
-                    Ok(ServerMessage::Ready) => Some(Ok(SidecarFrame::Status("ready".into()))),
-                    Ok(ServerMessage::Status { state }) => Some(Ok(SidecarFrame::Status(state))),
-                    Ok(ServerMessage::Error { message }) => Some(Ok(SidecarFrame::Error(message))),
-                    Err(e) => Some(Err(AppError::WebSocket(format!("反序列化失败: {e}")))),
-                }
-            }
+            Ok(Message::Text(text)) => match serde_json::from_str::<ServerMessage>(&text) {
+                Ok(ServerMessage::Ready) => Some(Ok(SidecarFrame::Status("ready".into()))),
+                Ok(ServerMessage::Status { state }) => Some(Ok(SidecarFrame::Status(state))),
+                Ok(ServerMessage::Error { message }) => Some(Ok(SidecarFrame::Error(message))),
+                Err(e) => Some(Err(AppError::WebSocket(format!("反序列化失败: {e}")))),
+            },
             Ok(Message::Close(_)) => None,
             Ok(_) => Some(Ok(SidecarFrame::Status("ping".into()))),
             Err(e) => Some(Err(AppError::WebSocket(e.to_string()))),

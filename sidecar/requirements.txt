@@ -45,6 +45,11 @@ faiss-cpu==1.9.0  # 实时变声场景下 CPU 版足够
 # Demucs 由 Meta 开源（MIT），支持 CPU/CUDA/MPS
 demucs==4.0.1
 
+# ---------- 专业人声分离（可选） ----------
+# RoFormer / MDX23C 通过 python-audio-separator 按需接入。
+# 该生态依赖更新快，可能与 RVC/fairseq 的 numpy 版本约束冲突，所以默认不强制安装：
+#   pip install audio-separator
+
 # ---------- 工具 ----------
 loguru==0.7.2
 typer==0.13.0

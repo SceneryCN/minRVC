@@ -19,7 +19,7 @@
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-5);
-  min-height: 192px;
+  min-height: 224px;
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -179,6 +179,41 @@
   align-items: center;
   width: 100%;
   margin-top: auto;
+}
+
+.importAction {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  background: var(--card-color-faint);
+  color: var(--card-color);
+  border: 1px solid color-mix(in srgb, var(--card-color) 28%, transparent);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast);
+  z-index: 2;
+}
+
+.importAction:hover,
+.importAction:focus-visible {
+  background: var(--card-color-soft);
+  border-color: color-mix(in srgb, var(--card-color) 45%, transparent);
+  outline: none;
+}
+
+.importAction svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.4;
 }
 
 .pitchHint {

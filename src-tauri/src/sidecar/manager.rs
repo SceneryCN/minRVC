@@ -90,8 +90,8 @@ impl SidecarManager {
 
         cmd.arg("--port")
             .arg(SIDECAR_PORT.to_string())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
 
         let child = cmd
             .spawn()

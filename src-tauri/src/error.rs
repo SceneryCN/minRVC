@@ -23,9 +23,6 @@ pub enum AppError {
     #[error("模型未找到: {0}")]
     ModelNotFound(String),
 
-    #[error("模型校验失败 (hash mismatch): {0}")]
-    ModelHashMismatch(String),
-
     #[error("IO 错误: {0}")]
     Io(#[from] std::io::Error),
 

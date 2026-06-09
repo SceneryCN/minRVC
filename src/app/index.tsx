@@ -1,34 +1,42 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import {
   Activity,
   AudioWaveform,
   CircleCheck,
+  Mic2,
   Mic,
   RefreshCw,
   Settings2,
   Sliders,
+  SlidersHorizontal,
   Sparkles,
   Speaker,
   TriangleAlert,
   Volume2,
 } from 'lucide-react';
 import { AudioMeter } from '@/components/audio-meter';
+import { CustomVoiceForm } from '@/components/custom-voice-form';
 import { DeviceSelector } from '@/components/device-selector';
 import { DspPanel } from '@/components/dsp-panel';
+import { HelpPanel } from '@/components/help-panel';
+import { LanguageSwitcher } from '@/components/language-switcher';
 import { LiveToggle } from '@/components/live-toggle';
 import { PitchControl } from '@/components/pitch-control';
+import { RealtimeSettings } from '@/components/realtime-settings';
 import { SeparationPanel } from '@/components/separation-panel';
 import { TabBar } from '@/components/tab-bar';
 import { ThemeSwitcher } from '@/components/theme-switcher';
+import { TrainingPanel } from '@/components/training-panel';
 import { VoiceCard } from '@/components/voice-card';
-import { VOICE_PRESETS } from '@/constants/voices';
+import { VOICE_PRESETS, VOICE_PRESET_MAP } from '@/constants/voices';
 import { useAppStore } from '@/hooks/use-app-store';
 import { useAudioDevices } from '@/hooks/use-audio-devices';
 import { useDsp } from '@/hooks/use-dsp';
 import { useEngine } from '@/hooks/use-engine';
 import { useVoiceModels } from '@/hooks/use-voice-models';
-import type { VoiceId } from '@/types';
+import type { VoiceModelInfo } from '@/types';
 import { tauriApi } from '@/utils/tauri-api';
 import styles from './styles.module.css';
 
@@ -37,7 +45,11 @@ export function App() {
   const { refresh: refreshDevices } = useAudioDevices();
   const { refresh: refreshVoices } = useVoiceModels();
   const { start, stop } = useEngine();
-  useDsp(); // 全局副作用：拉取/推送 DSP 配置 + 状态轮询
+  const refreshDoneTimerRef = useRef<number | null>(null);
+  const realtimeConfigTimerRef = useRef<number | null>(null);
+  const [modelRefreshState, setModelRefreshState] = useState<
+    'idle' | 'loading' | 'done'
+  >('idle');
 
   const activeTab = useAppStore((s) => s.activeTab);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
@@ -55,10 +67,9 @@ export function App() {
   const setSelectedVoice = useAppStore((s) => s.setSelectedVoice);
   const pitchShift = useAppStore((s) => s.pitchShift);
   const setPitchShift = useAppStore((s) => s.setPitchShift);
+  const realtimeConfig = useAppStore((s) => s.realtimeConfig);
 
   const engineStatus = useAppStore((s) => s.engineStatus);
-  const inputLevel = useAppStore((s) => s.inputLevel);
-  const outputLevel = useAppStore((s) => s.outputLevel);
   const errorMessage = useAppStore((s) => s.errorMessage);
 
   const installedMap = useMemo(() => {
@@ -67,14 +78,98 @@ export function App() {
     return m;
   }, [voices]);
 
+  const displayVoices = useMemo<VoiceModelInfo[]>(() => {
+    if (voices.length > 0) return voices;
+    return VOICE_PRESETS.map((preset) => ({
+      id: preset.id,
+      display_name: t(`${preset.i18nKey}.name`),
+      description: t(`${preset.i18nKey}.desc`),
+      category: preset.gender,
+      gender: preset.gender,
+      sample_rate: 40_000,
+      pth_path: null,
+      index_path: null,
+      installed: false,
+      recommended_pitch: preset.defaultPitch,
+      source_url: null,
+    }));
+  }, [t, voices]);
+
   const handleSelectVoice = useCallback(
-    (id: VoiceId) => {
+    (id: string) => {
       setSelectedVoice(id);
-      const preset = VOICE_PRESETS.find((v) => v.id === id);
-      if (preset) setPitchShift(preset.defaultPitch);
+      const voice = displayVoices.find((v) => v.id === id);
+      if (voice) setPitchShift(voice.recommended_pitch);
     },
-    [setSelectedVoice, setPitchShift],
+    [setSelectedVoice, setPitchShift, displayVoices],
   );
+
+  const handleImportVoice = useCallback(
+    async (voiceId: string) => {
+      try {
+        const pickedPth = await openDialog({
+          multiple: false,
+          directory: false,
+          filters: [{ name: 'RVC model', extensions: ['pth'] }],
+        });
+        if (typeof pickedPth !== 'string') return;
+        const pickedIndex = await openDialog({
+          multiple: false,
+          directory: false,
+          title: t('voice.pickIndexOptional'),
+          filters: [{ name: 'RVC index', extensions: ['index'] }],
+        });
+        await tauriApi.importVoiceModel({
+          voice_id: voiceId,
+          pth_path: pickedPth,
+          index_path: typeof pickedIndex === 'string' ? pickedIndex : null,
+        });
+        await refreshVoices();
+      } catch (e) {
+        useAppStore.getState().setError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [refreshVoices, t],
+  );
+
+  const handleCustomImported = useCallback(
+    async (voiceId: string) => {
+      await refreshVoices();
+      setSelectedVoice(voiceId);
+    },
+    [refreshVoices, setSelectedVoice],
+  );
+
+  const handleRefreshVoices = useCallback(async () => {
+    if (modelRefreshState === 'loading') return;
+    if (refreshDoneTimerRef.current !== null) {
+      window.clearTimeout(refreshDoneTimerRef.current);
+      refreshDoneTimerRef.current = null;
+    }
+    setModelRefreshState('loading');
+    try {
+      await refreshVoices();
+      setModelRefreshState('done');
+      refreshDoneTimerRef.current = window.setTimeout(() => {
+        setModelRefreshState('idle');
+        refreshDoneTimerRef.current = null;
+      }, 1800);
+    } catch (e) {
+      setModelRefreshState('idle');
+      useAppStore.getState().setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [modelRefreshState, refreshVoices]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshDoneTimerRef.current !== null) {
+        window.clearTimeout(refreshDoneTimerRef.current);
+      }
+      if (realtimeConfigTimerRef.current !== null) {
+        window.clearTimeout(realtimeConfigTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (engineStatus !== 'Running') return;
@@ -86,6 +181,23 @@ export function App() {
     void tauriApi.setVoice(selectedVoice).catch(() => {});
   }, [selectedVoice, engineStatus]);
 
+  useEffect(() => {
+    if (engineStatus !== 'Running') return;
+    if (realtimeConfigTimerRef.current !== null) {
+      window.clearTimeout(realtimeConfigTimerRef.current);
+    }
+    realtimeConfigTimerRef.current = window.setTimeout(() => {
+      void tauriApi.setRealtimeConfig(realtimeConfig).catch(() => {});
+      realtimeConfigTimerRef.current = null;
+    }, 140);
+    return () => {
+      if (realtimeConfigTimerRef.current !== null) {
+        window.clearTimeout(realtimeConfigTimerRef.current);
+        realtimeConfigTimerRef.current = null;
+      }
+    };
+  }, [realtimeConfig, engineStatus]);
+
   const showVirtualCableHint =
     !!selectedVoice && !virtualCable && inputDevices.length > 0;
 
@@ -94,6 +206,13 @@ export function App() {
 
   return (
     <div className={styles.shell}>
+      <DspRuntime />
+      <div className={styles.splash} aria-hidden>
+        <div className={styles.splashMark}>
+          <AudioWaveform />
+        </div>
+        <div className={styles.splashTitle}>Fuck RVC</div>
+      </div>
       <header className={styles.header}>
         <div className={styles.brand}>
           <span className={styles.brandIcon} aria-hidden>
@@ -112,6 +231,7 @@ export function App() {
             <span className={styles.statusDot} />
             {t(`status.${engineStatus}`)}
           </span>
+          <LanguageSwitcher />
           <ThemeSwitcher />
         </div>
       </header>
@@ -127,15 +247,27 @@ export function App() {
                 </h2>
               </div>
               <div className={styles.voiceGrid}>
-                {VOICE_PRESETS.map((preset) => (
+                {displayVoices.map((voice) => {
+                  const preset = VOICE_PRESET_MAP.get(voice.id);
+                  return (
                   <VoiceCard
-                    key={preset.id}
-                    preset={preset}
-                    selected={selectedVoice === preset.id}
-                    installed={installedMap.get(preset.id) ?? false}
+                    key={voice.id}
+                    id={voice.id}
+                    name={getVoiceName(voice, preset?.i18nKey, t)}
+                    description={getVoiceDescription(voice, preset?.i18nKey, t)}
+                    pitch={voice.recommended_pitch}
+                    color={preset?.colorVar ?? 'var(--color-info)'}
+                    Icon={preset?.Icon ?? Mic2}
+                    selected={selectedVoice === voice.id}
+                    installed={installedMap.get(voice.id) ?? false}
                     onSelect={handleSelectVoice}
+                    onImport={handleImportVoice}
                   />
-                ))}
+                  );
+                })}
+              </div>
+              <div className={styles.customVoiceWrap}>
+                <CustomVoiceForm onImported={handleCustomImported} />
               </div>
               {showMissingModel && (
                 <p className={styles.alert}>
@@ -199,12 +331,12 @@ export function App() {
               <div className={styles.metersRow}>
                 <AudioMeter
                   label={t('engine.inputLevel')}
-                  level={inputLevel}
+                  channel="input"
                   Icon={Mic}
                 />
                 <AudioMeter
                   label={t('engine.outputLevel')}
-                  level={outputLevel}
+                  channel="output"
                   Icon={Volume2}
                 />
               </div>
@@ -225,10 +357,28 @@ export function App() {
               </div>
               <DspPanel />
             </section>
+
+            <section className={styles.section}>
+              <div className={styles.sectionHeader}>
+                <h2 className={styles.sectionTitle}>
+                  <SlidersHorizontal />
+                  {t('realtime.sectionTitle')}
+                </h2>
+              </div>
+              <RealtimeSettings />
+            </section>
           </>
-        ) : (
+        ) : activeTab === 'lab' ? (
           <section className={styles.section}>
             <SeparationPanel />
+          </section>
+        ) : activeTab === 'train' ? (
+          <section className={styles.section}>
+            <TrainingPanel />
+          </section>
+        ) : (
+          <section className={styles.section}>
+            <HelpPanel />
           </section>
         )}
       </main>
@@ -245,12 +395,42 @@ export function App() {
         <button
           type="button"
           className={styles.refreshBtn}
-          onClick={() => void refreshVoices()}
+          data-state={modelRefreshState}
+          disabled={modelRefreshState === 'loading'}
+          aria-live="polite"
+          onClick={() => void handleRefreshVoices()}
         >
-          <RefreshCw />
-          {t('app.refreshModels')}
+          {modelRefreshState === 'done' ? <CircleCheck /> : <RefreshCw />}
+          {t(
+            modelRefreshState === 'loading'
+              ? 'app.refreshingModels'
+              : modelRefreshState === 'done'
+                ? 'app.modelsRefreshed'
+                : 'app.refreshModels',
+          )}
         </button>
       </footer>
     </div>
   );
+}
+
+const DspRuntime = memo(function DspRuntime() {
+  useDsp(); // 全局副作用：拉取/推送 DSP 配置 + 状态轮询
+  return null;
+});
+
+function getVoiceName(
+  voice: VoiceModelInfo,
+  i18nKey: string | undefined,
+  t: ReturnType<typeof useTranslation>['t'],
+) {
+  return i18nKey ? t(`${i18nKey}.name`) : voice.display_name;
+}
+
+function getVoiceDescription(
+  voice: VoiceModelInfo,
+  i18nKey: string | undefined,
+  t: ReturnType<typeof useTranslation>['t'],
+) {
+  return i18nKey ? t(`${i18nKey}.desc`) : voice.description;
 }

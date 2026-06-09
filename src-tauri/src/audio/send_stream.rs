@@ -15,13 +15,15 @@
 
 use cpal::Stream;
 
-pub struct SendStream(pub Stream);
+pub struct SendStream {
+    _stream: Stream,
+}
 
 unsafe impl Send for SendStream {}
 unsafe impl Sync for SendStream {}
 
 impl SendStream {
-    pub fn new(s: Stream) -> Self {
-        Self(s)
+    pub fn new(stream: Stream) -> Self {
+        Self { _stream: stream }
     }
 }

@@ -5,10 +5,10 @@
 //! - `ring`:     无锁环形缓冲（生产者-消费者）
 //! - `engine`:   把 capture / output / sidecar IPC 串起来的引擎
 
-pub mod devices;
 pub mod capture;
+pub mod devices;
+pub mod dsp;
+pub mod engine;
 pub mod output;
 pub mod ring;
-pub mod engine;
-pub mod dsp;
 pub mod send_stream;

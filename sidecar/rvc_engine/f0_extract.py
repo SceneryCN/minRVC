@@ -92,6 +92,8 @@ class F0Extractor:
         f0_min: float = 50.0,
         f0_max: float = 1100.0,
         pitch_semitones: int = 0,
+        filter_radius: int = 3,
+        protect: float = 0.33,
     ) -> tuple[np.ndarray, np.ndarray]:
         """提取 F0 + 离散索引。
 
@@ -114,6 +116,13 @@ class F0Extractor:
             f0 = self._fcpe_infer(pcm_16k, f0_min, f0_max)
         else:
             f0 = self._crepe_infer(pcm_16k, f0_min, f0_max)
+
+        if filter_radius >= 3:
+            f0 = _median_filter_1d(f0, filter_radius)
+        if protect > 0:
+            gate = max(0.01, min(0.08, float(protect) * 0.16))
+            frame_energy = _frame_rms(pcm_16k, len(f0))
+            f0 = np.where(frame_energy < gate, 0.0, f0)
 
         # 应用变调
         if pitch_semitones != 0:
@@ -169,3 +178,29 @@ class F0Extractor:
         pd = torchcrepe.filter.median(pd, 3)
         f0[pd < 0.1] = 0
         return f0.squeeze().cpu().numpy()
+
+
+def _median_filter_1d(values: np.ndarray, radius: int) -> np.ndarray:
+    radius = max(1, int(radius))
+    if radius % 2 == 0:
+        radius += 1
+    if values.shape[0] < radius:
+        return values
+    pad = radius // 2
+    padded = np.pad(values, (pad, pad), mode="edge")
+    out = np.empty_like(values)
+    for i in range(values.shape[0]):
+        out[i] = np.median(padded[i : i + radius])
+    return out
+
+
+def _frame_rms(pcm: np.ndarray, target_len: int) -> np.ndarray:
+    if target_len <= 0:
+        return np.zeros(0, dtype=np.float32)
+    frame = max(1, int(np.ceil(pcm.shape[0] / target_len)))
+    out = np.zeros(target_len, dtype=np.float32)
+    for i in range(target_len):
+        chunk = pcm[i * frame : min((i + 1) * frame, pcm.shape[0])]
+        if chunk.size:
+            out[i] = float(np.sqrt(np.mean(np.square(chunk)) + 1e-8))
+    return out

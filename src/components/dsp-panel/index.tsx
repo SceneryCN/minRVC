@@ -44,6 +44,7 @@ export const DspPanel = memo(function DspPanel() {
             max={1}
             step={0.05}
             value={cfg.denoiseStrength}
+            style={rangeStyle(cfg.denoiseStrength, 0, 1)}
             onChange={(e) =>
               setConfig({ denoiseStrength: Number.parseFloat(e.target.value) })
             }
@@ -76,6 +77,7 @@ export const DspPanel = memo(function DspPanel() {
             max={0.9}
             step={0.05}
             value={cfg.vadThreshold}
+            style={rangeStyle(cfg.vadThreshold, 0.1, 0.9)}
             onChange={(e) =>
               setConfig({ vadThreshold: Number.parseFloat(e.target.value) })
             }
@@ -92,6 +94,7 @@ export const DspPanel = memo(function DspPanel() {
             max={1000}
             step={50}
             value={cfg.vadMinSpeechMs}
+            style={rangeStyle(cfg.vadMinSpeechMs, 50, 1000)}
             onChange={(e) =>
               setConfig({ vadMinSpeechMs: Number.parseInt(e.target.value, 10) })
             }
@@ -108,6 +111,7 @@ export const DspPanel = memo(function DspPanel() {
             max={1000}
             step={50}
             value={cfg.vadMinSilenceMs}
+            style={rangeStyle(cfg.vadMinSilenceMs, 50, 1000)}
             onChange={(e) =>
               setConfig({ vadMinSilenceMs: Number.parseInt(e.target.value, 10) })
             }
@@ -164,4 +168,9 @@ function Toggle({ checked, onChange }: ToggleProps) {
       <span className={styles.toggleThumb} />
     </button>
   );
+}
+
+function rangeStyle(value: number, min: number, max: number) {
+  const pct = ((value - min) / (max - min)) * 100;
+  return { ['--fill' as string]: `${Math.max(0, Math.min(100, pct))}%` };
 }

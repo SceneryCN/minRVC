@@ -16,6 +16,8 @@ node_modules
 dist
 dist-ssr
 *.local
+*.tsbuildinfo
+.tsbuildinfo-*/
 
 # Editor
 .vscode/*
@@ -33,8 +35,17 @@ src-tauri/target/
 src-tauri/gen/
 src-tauri/Cargo.lock
 src-tauri/binaries/
+src-tauri/binaries/*
+src-tauri/*.log
 
 # Python sidecar
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pycache-check/
 sidecar/.venv/
 sidecar/__pycache__/
 sidecar/**/__pycache__/
@@ -42,7 +53,11 @@ sidecar/build/
 sidecar/dist/
 sidecar/*.spec
 sidecar/.pytest_cache/
+sidecar/.mypy_cache/
+sidecar/.ruff_cache/
 sidecar/*.egg-info/
+sidecar/rvc_engine/training/
+sidecar/rvc_engine/separation/
 
 # RVC Models (大文件，单独管理)
 models/hubert/*.pt
@@ -52,6 +67,9 @@ models/rmvpe/*.onnx
 models/voices/*/*.pth
 models/voices/*/*.index
 models/voices/*/*.onnx
+models/separation/
+models/demucs/
+models/training/
 !models/**/.gitkeep
 !models/manifest.json
 

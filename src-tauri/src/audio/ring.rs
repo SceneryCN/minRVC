@@ -9,8 +9,8 @@
 //!
 //! 容量 = 采样率 * 通道 * latency_seconds，向上取 2 的幂。
 
-use ringbuf::traits::Split;
 use ringbuf::storage::Heap;
+use ringbuf::traits::Split;
 use ringbuf::{HeapRb, SharedRb};
 use std::sync::Arc;
 

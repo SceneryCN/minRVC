@@ -32,7 +32,7 @@ class SidecarConfig:
 
     target_sr: int = 16_000  # HuBERT 输入采样率
     block_time: float = 0.25  # 每次推理处理 0.25s 音频
-    crossfade_time: float = 0.05  # SOLA 交叉淡化时长
+    crossfade_time: float = 0.01  # SOLA 交叉淡化时长
     extra_time: float = 2.5  # 历史上下文（秒），减小不连续感
 
     f0_method: str = "rmvpe"  # rmvpe / fcpe / crepe
@@ -71,8 +71,22 @@ class SidecarConfig:
         return d
 
     @property
+    def training_dir(self) -> Path:
+        """本机训练任务输出目录。"""
+        d = self.data_dir / "training"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @property
     def demucs_models_dir(self) -> Path:
         """Demucs 预训练模型缓存目录（torch.hub 默认放这里）。"""
         d = self.models_dir / "demucs"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @property
+    def audio_separator_models_dir(self) -> Path:
+        """audio-separator / UVR 系模型缓存目录。"""
+        d = self.models_dir / "audio-separator"
         d.mkdir(parents=True, exist_ok=True)
         return d

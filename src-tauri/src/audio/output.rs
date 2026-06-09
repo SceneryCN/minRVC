@@ -15,12 +15,12 @@ use ringbuf::traits::Consumer;
 pub struct OutputStream {
     _stream: SendStream,
     pub sample_rate: u32,
-    pub channels: u16,
 }
 
 pub fn build_output_stream(
     device_name: Option<&str>,
     consumer: SampleConsumer,
+    desired_sample_rate: Option<u32>,
 ) -> AppResult<OutputStream> {
     let host = cpal::default_host();
     let device = pick_output_device(&host, device_name)?;
@@ -28,10 +28,11 @@ pub fn build_output_stream(
     let supported = device
         .default_output_config()
         .map_err(|e| AppError::AudioDevice(format!("default_output_config: {e}")))?;
-    let sample_rate = supported.sample_rate().0;
+    let sample_rate = desired_sample_rate.unwrap_or_else(|| supported.sample_rate().0);
     let channels = supported.channels();
     let sample_format = supported.sample_format();
-    let cfg: StreamConfig = supported.into();
+    let mut cfg: StreamConfig = supported.into();
+    cfg.sample_rate = cpal::SampleRate(sample_rate);
 
     tracing::info!(
         "输出流：device={:?} sr={} ch={} fmt={:?}",
@@ -49,7 +50,6 @@ pub fn build_output_stream(
     Ok(OutputStream {
         _stream: SendStream::new(stream),
         sample_rate,
-        channels,
     })
 }
 
@@ -90,11 +90,7 @@ fn build_stream_inner(
         SampleFormat::I16 => device.build_output_stream(
             cfg,
             move |data: &mut [i16], _| {
-                let mut tmp = vec![0.0_f32; data.len()];
-                fill_mono_to_n(&mut tmp, ch, &mut consumer);
-                for (dst, src) in data.iter_mut().zip(tmp.iter()) {
-                    *dst = (src.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-                }
+                fill_mono_to_i16(data, ch, &mut consumer);
             },
             err_fn,
             None,
@@ -102,18 +98,15 @@ fn build_stream_inner(
         SampleFormat::U16 => device.build_output_stream(
             cfg,
             move |data: &mut [u16], _| {
-                let mut tmp = vec![0.0_f32; data.len()];
-                fill_mono_to_n(&mut tmp, ch, &mut consumer);
-                for (dst, src) in data.iter_mut().zip(tmp.iter()) {
-                    let v = (src.clamp(-1.0, 1.0) * 32767.0) + 32768.0;
-                    *dst = v as u16;
-                }
+                fill_mono_to_u16(data, ch, &mut consumer);
             },
             err_fn,
             None,
         ),
         other => {
-            return Err(AppError::AudioStream(format!("不支持的输出格式: {other:?}")));
+            return Err(AppError::AudioStream(format!(
+                "不支持的输出格式: {other:?}"
+            )));
         }
     };
 
@@ -129,6 +122,34 @@ fn fill_mono_to_n(out: &mut [f32], channels: usize, consumer: &mut SampleConsume
         let mono = consumer.try_pop().unwrap_or(0.0);
         for c in 0..channels {
             out[i * channels + c] = mono;
+        }
+    }
+}
+
+fn fill_mono_to_i16(out: &mut [i16], channels: usize, consumer: &mut SampleConsumer) {
+    if channels == 0 {
+        return;
+    }
+    let frames = out.len() / channels;
+    for i in 0..frames {
+        let mono = consumer.try_pop().unwrap_or(0.0);
+        let sample = (mono.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+        for c in 0..channels {
+            out[i * channels + c] = sample;
+        }
+    }
+}
+
+fn fill_mono_to_u16(out: &mut [u16], channels: usize, consumer: &mut SampleConsumer) {
+    if channels == 0 {
+        return;
+    }
+    let frames = out.len() / channels;
+    for i in 0..frames {
+        let mono = consumer.try_pop().unwrap_or(0.0);
+        let sample = ((mono.clamp(-1.0, 1.0) * 32767.0) + 32768.0) as u16;
+        for c in 0..channels {
+            out[i * channels + c] = sample;
         }
     }
 }

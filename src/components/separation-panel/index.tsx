@@ -5,6 +5,7 @@ import {
   Download,
   FileAudio,
   FlaskConical,
+  Gauge,
   Loader2,
   Music,
   TriangleAlert,
@@ -19,7 +20,11 @@ import styles from './styles.module.css';
 const MODELS: Array<{ id: string; labelKey: string }> = [
   { id: 'htdemucs', labelKey: 'separation.modelHtdemucs' },
   { id: 'htdemucs_ft', labelKey: 'separation.modelHtdemucsFt' },
+  { id: 'htdemucs_6s', labelKey: 'separation.modelHtdemucs6s' },
   { id: 'mdx_extra', labelKey: 'separation.modelMdxExtra' },
+  { id: 'bs_roformer', labelKey: 'separation.modelBsRoformer' },
+  { id: 'roformer_mel_band', labelKey: 'separation.modelMelBandRoformer' },
+  { id: 'mdx23c', labelKey: 'separation.modelMdx23c' },
 ];
 
 /**
@@ -105,6 +110,13 @@ export const SeparationPanel = memo(function SeparationPanel() {
         </div>
       </div>
 
+      <div className={styles.noticeGrid}>
+        <div className={styles.noticeItem}>
+          <Gauge />
+          <span>{t('separation.gpuNotice')}</span>
+        </div>
+      </div>
+
       {/* Step 1: 选文件 */}
       <div className={styles.dropZone} data-active={!!inputPath || undefined}>
         <button type="button" className={styles.dropBtn} onClick={handlePickFile}>
@@ -165,6 +177,8 @@ export const SeparationPanel = memo(function SeparationPanel() {
           </div>
         </label>
       </div>
+
+      <p className={styles.modelHint}>{t('separation.modelHint')}</p>
 
       {/* Step 3: action */}
       <div className={styles.actions}>

@@ -99,10 +99,7 @@ pub async fn get_separation_status(
 }
 
 #[tauri::command]
-pub async fn cancel_separation(
-    state: State<'_, AppState>,
-    session_id: String,
-) -> AppResult<()> {
+pub async fn cancel_separation(state: State<'_, AppState>, session_id: String) -> AppResult<()> {
     if !state.sidecar.is_running() {
         return Ok(());
     }

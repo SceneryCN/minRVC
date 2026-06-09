@@ -18,24 +18,29 @@ class SOLAStitcher:
         self.crossfade_len = max(64, int(sample_rate * crossfade_time))
         self.search_len = self.crossfade_len // 2
         self.tail = np.zeros(0, dtype=np.float32)
+        self.fade_in = np.linspace(0.0, 1.0, self.crossfade_len, dtype=np.float32)
+        self.fade_out = 1.0 - self.fade_in
 
     def process(self, chunk: np.ndarray) -> np.ndarray:
         chunk = np.asarray(chunk, dtype=np.float32).flatten()
         if self.tail.size == 0:
-            # 第一块：留 crossfade 长度做 tail
+            # 第一块：输出原块，同时留尾部给下一块做 crossfade，避免启动首包静音。
             if chunk.size <= self.crossfade_len:
                 self.tail = chunk.copy()
-                return np.zeros(0, dtype=np.float32)
-            head = chunk[: -self.crossfade_len]
+                return chunk
+            head = chunk.copy()
             self.tail = chunk[-self.crossfade_len :].copy()
             return head
 
         # 在 chunk 起始 search_len 范围内寻找与 tail 的最大互相关
         if chunk.size < self.crossfade_len + self.search_len:
-            # 块太短，简单覆盖
-            merged = np.concatenate([self.tail, chunk])
-            self.tail = np.zeros(0, dtype=np.float32)
-            return merged
+            # 块太短时不做 SOLA 搜索，直接保持固定长度输出并刷新 tail。
+            if chunk.size >= self.crossfade_len:
+                self.tail = chunk[-self.crossfade_len :].copy()
+            else:
+                keep = max(0, self.crossfade_len - chunk.size)
+                self.tail = np.concatenate([self.tail[-keep:], chunk]).astype(np.float32)
+            return chunk
 
         cf = self.crossfade_len
         sl = self.search_len
@@ -54,9 +59,7 @@ class SOLAStitcher:
                 best = offset
 
         # 线性 crossfade
-        fade_in = np.linspace(0.0, 1.0, cf, dtype=np.float32)
-        fade_out = 1.0 - fade_in
-        cross = ref * fade_out + chunk[best : best + cf] * fade_in
+        cross = ref * self.fade_out + chunk[best : best + cf] * self.fade_in
 
         # 输出：cross + 之后的部分（去掉新 tail）
         rest = chunk[best + cf :]

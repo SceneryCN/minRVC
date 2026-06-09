@@ -62,10 +62,6 @@ sha2 = "0.10"
 hex = "0.4"
 dirs = "5.0"
 
-[target.'cfg(target_os = "windows")'.dependencies]
-# Windows 专用：ASIO 支持需要 cpal 启用 asio feature
-cpal = { version = "0.15", features = [] }
-
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

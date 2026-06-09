@@ -5,8 +5,14 @@ import type {
   DspConfig,
   DspStatus,
   EngineStatusPayload,
+  F0ModelStatus,
   SeparationStatus,
+  StartTrainingPayload,
   StartEnginePayload,
+  TrainingGpuInfo,
+  TrainingStatus,
+  ImportVoiceModelPayload,
+  RealtimeConfig,
   VoiceModelInfo,
 } from '@/types';
 
@@ -23,15 +29,17 @@ export const tauriApi = {
   setVoice: (voiceId: string) => invoke<void>('set_voice', { voiceId }),
   setPitchShift: (semitones: number) =>
     invoke<void>('set_pitch_shift', { semitones }),
+  setRealtimeConfig: (config: RealtimeConfig) =>
+    invoke<void>('set_realtime_config', { config }),
 
   listVoiceModels: () => invoke<VoiceModelInfo[]>('list_voice_models'),
-  importVoiceModel: (payload: {
-    voice_id: string;
-    pth_path: string;
-    index_path: string | null;
-  }) => invoke<VoiceModelInfo>('import_voice_model', { payload }),
+  importVoiceModel: (payload: ImportVoiceModelPayload) =>
+    invoke<VoiceModelInfo>('import_voice_model', { payload }),
   downloadPresetModel: (voiceId: string) =>
     invoke<VoiceModelInfo>('download_preset_model', { payload: { voice_id: voiceId } }),
+  getF0ModelStatus: () => invoke<F0ModelStatus>('get_f0_model_status'),
+  importF0Model: (kind: 'rmvpe', path: string) =>
+    invoke<F0ModelStatus>('import_f0_model', { payload: { kind, path } }),
 
   // ---------- DSP（降噪 + VAD） ----------
   getDspConfig: () => invoke<DspConfig>('get_dsp_config'),
@@ -49,4 +57,13 @@ export const tauriApi = {
     invoke<SeparationStatus>('get_separation_status', { sessionId }),
   cancelSeparation: (sessionId: string) =>
     invoke<void>('cancel_separation', { sessionId }),
+
+  // ---------- 本机模型训练 ----------
+  getTrainingGpu: () => invoke<TrainingGpuInfo>('get_training_gpu'),
+  startTraining: (payload: StartTrainingPayload) =>
+    invoke<{ session_id: string }>('start_training', { payload }),
+  getTrainingStatus: (sessionId: string) =>
+    invoke<TrainingStatus>('get_training_status', { sessionId }),
+  cancelTraining: (sessionId: string) =>
+    invoke<void>('cancel_training', { sessionId }),
 } as const;

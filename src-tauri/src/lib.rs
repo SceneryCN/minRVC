@@ -14,7 +14,9 @@ mod ipc;
 mod sidecar;
 mod state;
 
-use commands::{audio_cmds, dsp_cmds, engine_cmds, model_cmds, separation_cmds};
+use commands::{
+    audio_cmds, dsp_cmds, engine_cmds, model_cmds, separation_cmds, training_cmds,
+};
 use state::AppState;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -37,15 +39,22 @@ pub fn run() {
             engine_cmds::get_engine_status,
             engine_cmds::set_voice,
             engine_cmds::set_pitch_shift,
+            engine_cmds::set_realtime_config,
             model_cmds::list_voice_models,
             model_cmds::import_voice_model,
             model_cmds::download_preset_model,
+            model_cmds::get_f0_model_status,
+            model_cmds::import_f0_model,
             dsp_cmds::get_dsp_config,
             dsp_cmds::set_dsp_config,
             dsp_cmds::get_dsp_status,
             separation_cmds::start_separation,
             separation_cmds::get_separation_status,
             separation_cmds::cancel_separation,
+            training_cmds::get_training_gpu,
+            training_cmds::start_training,
+            training_cmds::get_training_status,
+            training_cmds::cancel_training,
         ])
         .setup(|app| {
             tracing::info!("声变 Tauri 应用启动");

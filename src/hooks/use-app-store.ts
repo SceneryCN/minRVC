@@ -5,7 +5,9 @@ import type {
   DspConfig,
   DspStatus,
   EngineStatus,
+  RealtimeConfig,
   SeparationStatus,
+  TrainingStatus,
   VoiceId,
   VoiceModelInfo,
 } from '@/types';
@@ -24,6 +26,25 @@ const DEFAULT_DSP_STATUS: DspStatus = {
   vadProbability: 0,
   denoiseActive: false,
   vadAvailable: false,
+};
+
+export const DEFAULT_REALTIME_CONFIG: RealtimeConfig = {
+  responseThreshold: 0.5,
+  voiceThickness: 0,
+  indexRate: 0.5,
+  rmsMixRate: 0.25,
+  protect: 0.33,
+  loudness: 1,
+  f0Method: 'rmvpe',
+  f0FilterRadius: 3,
+  resampleSr: 0,
+  sampleRateMode: 'device',
+  customSampleRate: 48000,
+  chunkSize: 4096,
+  harvestProcesses: 2,
+  crossfadeMs: 10,
+  extraInferenceMs: 2500,
+  bufferMs: 500,
 };
 
 interface AppStoreState {
@@ -46,8 +67,10 @@ interface AppStoreState {
 
   dspConfig: DspConfig;
   dspStatus: DspStatus;
+  realtimeConfig: RealtimeConfig;
 
   separationJob: SeparationStatus | null;
+  trainingJob: TrainingStatus | null;
 }
 
 interface AppStoreActions {
@@ -65,7 +88,10 @@ interface AppStoreActions {
   setDspConfig: (cfg: DspConfig) => void;
   patchDspConfig: (patch: Partial<DspConfig>) => void;
   setDspStatus: (status: DspStatus) => void;
+  setRealtimeConfig: (cfg: RealtimeConfig) => void;
+  patchRealtimeConfig: (patch: Partial<RealtimeConfig>) => void;
   setSeparationJob: (job: SeparationStatus | null) => void;
+  setTrainingJob: (job: TrainingStatus | null) => void;
 }
 
 export const useAppStore = create<AppStoreState & AppStoreActions>((set) => ({
@@ -88,8 +114,10 @@ export const useAppStore = create<AppStoreState & AppStoreActions>((set) => ({
 
   dspConfig: DEFAULT_DSP_CONFIG,
   dspStatus: DEFAULT_DSP_STATUS,
+  realtimeConfig: DEFAULT_REALTIME_CONFIG,
 
   separationJob: null,
+  trainingJob: null,
 
   setActiveTab: (tab) => set({ activeTab: tab }),
   setDevices: (input, output) => set({ inputDevices: input, outputDevices: output }),
@@ -100,11 +128,35 @@ export const useAppStore = create<AppStoreState & AppStoreActions>((set) => ({
   setSelectedVoice: (voice) => set({ selectedVoice: voice }),
   setPitchShift: (semitones) => set({ pitchShift: semitones }),
   setEngineStatus: (s) => set({ engineStatus: s }),
-  setMeters: (input, output) => set({ inputLevel: input, outputLevel: output }),
+  setMeters: (input, output) =>
+    set((s) => {
+      if (
+        Math.abs(s.inputLevel - input) < 0.004 &&
+        Math.abs(s.outputLevel - output) < 0.004
+      ) {
+        return s;
+      }
+      return { inputLevel: input, outputLevel: output };
+    }),
   setError: (message) => set({ errorMessage: message }),
   setDspConfig: (cfg) => set({ dspConfig: cfg }),
   patchDspConfig: (patch) =>
     set((s) => ({ dspConfig: { ...s.dspConfig, ...patch } })),
-  setDspStatus: (status) => set({ dspStatus: status }),
+  setDspStatus: (status) =>
+    set((s) => {
+      if (
+        s.dspStatus.speaking === status.speaking &&
+        s.dspStatus.denoiseActive === status.denoiseActive &&
+        s.dspStatus.vadAvailable === status.vadAvailable &&
+        Math.abs(s.dspStatus.vadProbability - status.vadProbability) < 0.004
+      ) {
+        return s;
+      }
+      return { dspStatus: status };
+    }),
+  setRealtimeConfig: (cfg) => set({ realtimeConfig: cfg }),
+  patchRealtimeConfig: (patch) =>
+    set((s) => ({ realtimeConfig: { ...s.realtimeConfig, ...patch } })),
   setSeparationJob: (job) => set({ separationJob: job }),
+  setTrainingJob: (job) => set({ trainingJob: job }),
 }));

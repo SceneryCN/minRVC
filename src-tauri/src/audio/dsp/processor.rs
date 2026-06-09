@@ -13,7 +13,6 @@ use crate::audio::dsp::state::SharedDspState;
 use crate::audio::dsp::vad::{SileroVadDetector, SILERO_SR};
 
 pub struct DspProcessor {
-    sample_rate: u32,
     state: SharedDspState,
     denoise: Option<RnnoiseDenoiser>,
     vad: Option<SileroVadDetector>,
@@ -56,10 +55,7 @@ impl DspProcessor {
             0
         };
         if downsample_ratio == 0 {
-            tracing::warn!(
-                "采样率 {} Hz 与 16 kHz 非整数比，VAD 将被禁用",
-                sample_rate
-            );
+            tracing::warn!("采样率 {} Hz 与 16 kHz 非整数比，VAD 将被禁用", sample_rate);
         }
 
         // 同步可用性到共享 state
@@ -69,7 +65,6 @@ impl DspProcessor {
         });
 
         Self {
-            sample_rate,
             state,
             denoise,
             vad,
@@ -116,6 +111,22 @@ impl DspProcessor {
         speaking
     }
 
+    pub fn reset(&mut self) {
+        if let Some(denoise) = &mut self.denoise {
+            denoise.reset();
+        }
+        if let Some(vad) = &mut self.vad {
+            vad.reset();
+        }
+        self.downsample_acc = 0.0;
+        self.downsample_count = 0;
+        self.scratch_16k.clear();
+        self.state.update_status(|s| {
+            s.speaking = false;
+            s.vad_probability = 0.0;
+        });
+    }
+
     fn run_vad(&mut self, signal: &[f32], cfg: &crate::audio::dsp::state::DspConfig) -> bool {
         if !cfg.vad_enabled || self.downsample_ratio == 0 {
             self.state.update_status(|s| {
@@ -146,8 +157,7 @@ impl DspProcessor {
             self.downsample_acc += s;
             self.downsample_count += 1;
             if self.downsample_count >= ratio {
-                self.scratch_16k
-                    .push(self.downsample_acc / ratio as f32);
+                self.scratch_16k.push(self.downsample_acc / ratio as f32);
                 self.downsample_acc = 0.0;
                 self.downsample_count = 0;
             }
@@ -161,9 +171,5 @@ impl DspProcessor {
             s.vad_probability = prob;
         });
         speaking
-    }
-
-    pub fn sample_rate(&self) -> u32 {
-        self.sample_rate
     }
 }

@@ -1,17 +1,21 @@
 import { memo } from 'react';
 import { type LucideIcon } from 'lucide-react';
+import { useAppStore } from '@/hooks/use-app-store';
 import { clamp, levelToPercent } from '@/utils/format';
 import styles from './styles.module.css';
 
 interface AudioMeterProps {
   label: string;
-  level: number;
+  channel: 'input' | 'output';
   Icon?: LucideIcon;
 }
 
 const PEAK_TICKS = 12;
 
-function AudioMeterImpl({ label, level, Icon }: AudioMeterProps) {
+function AudioMeterImpl({ label, channel, Icon }: AudioMeterProps) {
+  const level = useAppStore((s) =>
+    channel === 'input' ? s.inputLevel : s.outputLevel,
+  );
   const percent = levelToPercent(level);
   const scale = clamp(level, 0, 1);
 

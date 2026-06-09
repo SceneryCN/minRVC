@@ -2,12 +2,14 @@ import type { Translations } from './zh-cn';
 
 export const en: Translations = {
   app: {
-    title: 'VoiceShift',
+    title: 'Fuck RVC',
     subtitle: 'Realtime RVC Voice Changer',
     sectionVoice: 'Voices',
     sectionDevice: 'Audio Devices',
     sectionControl: 'Live Control',
     refreshModels: 'Refresh',
+    refreshingModels: 'Refreshing…',
+    modelsRefreshed: 'Refreshed',
   },
   voice: {
     yujie: { name: 'Mature Lady', desc: 'Mature, intellectual, slightly husky' },
@@ -19,12 +21,27 @@ export const en: Translations = {
     notInstalledShort: 'No model',
     installedShort: 'Ready',
     install: 'Import model',
+    reimport: 'Reimport',
+    pickIndexOptional: 'Choose .index file (cancel to skip)',
     selectHint: 'Click to select',
     needModel: 'No .pth model for this voice yet. See the model guide.',
   },
+  customVoice: {
+    title: 'Add Custom Voice',
+    desc: 'Import your own RVC .pth model. The app will copy files and maintain the manifest.',
+    name: 'Voice name',
+    namePlaceholder: 'Example: My voice',
+    pitch: 'Recommended pitch',
+    description: 'Description',
+    descriptionPlaceholder: 'Good for streaming, singing, or roleplay',
+    pickPth: 'Choose .pth model',
+    pickIndex: 'Choose .index (optional)',
+    add: 'Add voice',
+    defaultDesc: 'User-imported custom voice',
+  },
   device: {
     inputLabel: 'Microphone',
-    outputLabel: 'Virtual Cable (to streaming)',
+    outputLabel: 'Output device (interface / virtual route)',
     refresh: 'Refresh',
     autoDetect: 'Auto-detect',
     virtualCableNotFound:
@@ -57,23 +74,31 @@ export const en: Translations = {
     Error: 'Error',
   },
   theme: {
+    aria: 'Theme',
     light: 'Light',
     dark: 'Dark',
     system: 'System',
+  },
+  language: {
+    aria: 'Language',
+    zh: '中文',
+    en: 'EN',
   },
   error: {
     generic: 'Error: {{message}}',
   },
   guide: {
-    step1: 'Install VB-Cable virtual audio cable',
-    step2: 'Pick microphone & virtual cable output',
+    step1: 'Prepare an output route your target app can receive',
+    step2: 'Pick microphone and output device',
     step3: 'Pick a voice, then click Start',
-    step4: 'Set OBS / DAW mic source to "CABLE Output"',
+    step4: 'Select the matching input or route in the target app',
   },
   tabs: {
     aria: 'Sections',
     voice: 'Live Voice',
-    lab: 'Lab',
+    lab: 'Assets',
+    train: 'Training',
+    help: 'Help',
   },
   dsp: {
     sectionTitle: 'Denoise / VAD',
@@ -91,16 +116,85 @@ export const en: Translations = {
     silence: 'Silence',
     hint: 'RNNoise active only at 48 kHz; Silero VAD adapts to any sample rate',
   },
+  realtime: {
+    sectionTitle: 'General Settings',
+    voiceTitle: 'Voice Parameters',
+    voiceDesc: 'These affect similarity, stability, and loudness.',
+    responseThreshold: 'Response threshold',
+    responseThresholdHint: 'Syncs silence detection; higher ignores noise but may miss soft speech',
+    voiceThickness: 'Gender factor / voice thickness',
+    voiceThicknessHint: 'Positive is thicker, negative is brighter; too much sounds fake',
+    thick: 'Thick',
+    thin: 'Thin',
+    indexRate: 'Index feature ratio',
+    indexRateHint: 'Higher sounds more like the model, lower keeps more of your own delivery',
+    rmsMixRate: 'Input RMS envelope mix',
+    rmsMixRateHint: 'Higher follows your input loudness more; too high leaks the original feel',
+    protect: 'Consonant protection',
+    protectHint: 'Protects breathy / sibilant detail; too high weakens conversion color',
+    loudness: 'Loudness factor',
+    loudnessHint: 'Raise if converted voice is quiet, lower if it clips',
+    pitchTitle: 'Pitch Settings',
+    pitchDesc: 'Speech, singing, and noisy rooms prefer different pitch trackers.',
+    f0Method: 'Pitch algorithm',
+    f0: {
+      rmvpe: 'RMVPE: default, stable, good with noise',
+      fcpe: 'FCPE: lighter, latency-friendly',
+      crepe: 'Crepe: heavier, useful for comparison',
+    },
+    f0ModelInstalled: 'RMVPE model ready',
+    f0ModelMissing: 'RMVPE model missing',
+    f0ModelDesc: 'RMVPE needs rmvpe.pt; FCPE / Crepe use Python package models',
+    downloadRmvpe: 'Download RMVPE',
+    importRmvpe: 'Load RMVPE',
+    f0GpuHint:
+      'Pitch tracking is not CPU-only. With CUDA, RMVPE and Crepe try to use GPU; FCPE uses the configured device, but behavior depends on the installed torchfcpe version. MPS / CPU depends on PyTorch and package support. RMVPE needs rmvpe.pt.',
+    f0FilterRadius: 'F0 median filter radius',
+    f0FilterRadiusHint: 'Higher reduces pitch spikes; too high flattens small bends',
+    sampleRateMode: 'Sample rate mode',
+    sampleRateDevice: 'Use device default',
+    sampleRateCustom: 'Set it myself',
+    customSampleRate: 'Custom sample rate',
+    resampleSr: 'Output resample rate',
+    resampleOff: 'No resample',
+    resampleHint:
+      'Realtime output still matches the device sample rate; this emulates the official post-resample step.',
+    performanceTitle: 'Performance Settings',
+    performanceDesc: 'More stable usually means slower; faster can crackle or break up.',
+    chunkSize: 'Sample block size',
+    chunkSizeHint: 'Smaller lowers latency but costs more; larger is steadier but slower',
+    bufferMs: 'Buffer duration',
+    bufferMsHint: 'Too low crackles, too high feels delayed',
+    crossfadeMs: 'Crossfade length',
+    crossfadeMsHint: 'More reduces clicks, less reacts faster',
+    extraInferenceMs: 'Extra inference time',
+    extraInferenceMsHint: 'More sounds smoother, but costs VRAM and latency',
+    harvestProcesses: 'Harvest workers',
+    harvestProcessesHint: 'Reserved for Harvest; RMVPE/FCPE mostly ignore this',
+    samplesValue: '{{value}} samples',
+    msValue: '{{value}} ms',
+    restartNotice:
+      'Sample rate, chunk size, and buffer changes need Stop then Start. Pitch algorithm, index mix, loudness, voice thickness, crossfade, and look-back context update while running when possible.',
+  },
   separation: {
-    title: 'Offline Vocal Separation (Demucs)',
+    title: 'Offline Vocal Separation',
     desc:
-      'Extract clean vocals from music / video, ideal for building your own RVC training set. Fully offline & free.',
+      'Extract clean vocals from music / video for RVC training. Models download on first use; high-quality modes are GPU-heavy.',
     pickFile: 'Pick audio file (mp3 / wav / flac…)',
     replace: 'Change',
     model: 'Model',
-    modelHtdemucs: 'htdemucs (default, balanced)',
-    modelHtdemucsFt: 'htdemucs_ft (higher quality, slower)',
-    modelMdxExtra: 'mdx_extra (best for EDM / electronic)',
+    modelHtdemucs: 'Demucs htdemucs (balanced, ~80MB)',
+    modelHtdemucsFt: 'Demucs htdemucs_ft (higher quality, GPU-heavy)',
+    modelHtdemucs6s: 'Demucs htdemucs_6s (6 stems, slower)',
+    modelMdxExtra: 'Demucs mdx_extra (EDM / electronic)',
+    modelBsRoformer: 'BS-RoFormer (pro vocals, GPU-heavy)',
+    modelMelBandRoformer: 'MelBand RoFormer (clean vocals, GPU-heavy)',
+    modelMdx23c: 'MDX23C (vocals / instrumental, high quality)',
+    modelHint:
+      'These models automatically use CUDA / MPS / CPU when available. First use downloads weights; RoFormer / MDX23C are larger, and long audio takes longer.',
+    gpuNotice:
+      'Separation is offline deep-learning inference, not a simple filter. GPU is much faster; high-quality models and long tracks can use several GB of VRAM. CPU works, but slowly.',
+    externalModels: '',
     outputs: 'Outputs',
     twoStems: 'Vocals + Accompaniment',
     fourStems: '4 stems (drums / bass / other / vocals)',
@@ -115,5 +209,157 @@ export const en: Translations = {
       failed: 'Failed',
       cancelled: 'Cancelled',
     },
+  },
+  training: {
+    title: 'Train Model',
+    desc: 'Train your own RVC voice model locally from clean vocal recordings.',
+    gpuNotice:
+      'Training is heavier than separation. CUDA GPUs are faster; Apple MPS may work. CPU training is extremely slow.',
+    packageTitle: 'RVC training package',
+    packageDesc:
+      'Download the official RVC-WebUI repository or Release archive, unzip it, then choose the root folder containing infer-web.py.',
+    openRepo: 'Official repo',
+    openReleases: 'Releases',
+    pickPackage: 'Load package folder',
+    pickPackageTitle: 'Choose extracted RVC-WebUI training package folder',
+    dataset: 'Training dataset',
+    pickDataset: 'Choose vocal folder',
+    voiceName: 'Model name',
+    voiceNamePlaceholder: 'Example: my_voice',
+    modelVersion: 'RVC model version',
+    version: {
+      v1: 'v1',
+      v2: 'v2',
+    },
+    epochs: 'Epochs',
+    batchSize: 'Batch size',
+    sampleRate: 'Target sample rate',
+    f0Method: 'Pitch algorithm',
+    f0: {
+      rmvpe: 'RMVPE: recommended',
+      fcpe: 'FCPE: lighter',
+      crepe: 'Crepe: heavier',
+    },
+    saveEveryEpoch: 'Save interval',
+    advancedTitle: 'Save & VRAM Parameters',
+    advancedDesc:
+      'Common RVC-WebUI training options. Cache only when VRAM is enough; keep latest only when disk space matters.',
+    gpuIds: 'GPU IDs',
+    pretrainedG: 'Pretrained generator G',
+    pretrainedD: 'Pretrained discriminator D',
+    pickPretrainedG: 'Choose G weight (optional)',
+    pickPretrainedD: 'Choose D weight (optional)',
+    pickPretrainedGTitle: 'Choose pretrained generator G weight',
+    pickPretrainedDTitle: 'Choose pretrained discriminator D weight',
+    cacheGpu: 'Cache dataset in GPU memory',
+    cacheGpuHint: 'Faster with enough VRAM; leave off on small cards',
+    saveLatestOnly: 'Save latest checkpoint only',
+    saveLatestOnlyHint: 'Saves disk; turn off if you need rollback points',
+    saveEveryWeights: 'Save full weights each interval',
+    saveEveryWeightsHint: 'Useful for picking epochs, but uses much more disk',
+    useGpu: 'Use GPU',
+    gpuChecking: 'Checking',
+    gpuUnknown: 'Not checked',
+    gpuUnavailable: 'GPU unavailable',
+    gpuCpuMode: 'CPU only right now',
+    refreshGpu: 'Refresh GPU detection',
+    gpuBackend: {
+      cuda: 'CUDA available',
+      mps: 'Apple MPS available',
+      cpu: 'CPU mode',
+    },
+    envHint:
+      'After loading a package folder, the app checks infer-web.py / train.py. Missing environment details are reported in the job status.',
+    start: 'Start training',
+    cancel: 'Cancel training',
+    pth: 'Model',
+    index: 'Index',
+    log: 'Log',
+    state: {
+      pending: 'Queued',
+      running: 'Training',
+      done: 'Done',
+      failed: 'Failed',
+      cancelled: 'Cancelled',
+    },
+  },
+  help: {
+    title: 'Help & Model Guide',
+    desc:
+      'A practical checklist for first-time setup, audio routing, and RVC model import.',
+    quickStartTitle: 'Quick Start',
+    steps: {
+      virtualCable: {
+        title: 'Prepare output route',
+        desc:
+          'If your audio interface, StudioOne, or host app can receive this app output directly, you do not need an extra virtual cable. Otherwise use VB-Cable / BlackHole.',
+      },
+      devices: {
+        title: 'Pick devices',
+        desc:
+          'Set microphone to your physical input, then set output to an interface, loopback channel, or virtual route your target app can receive.',
+      },
+      voice: {
+        title: 'Pick a voice',
+        desc:
+          'Select a voice card. If it says no model, import the matching RVC .pth file first.',
+      },
+      routing: {
+        title: 'Route to apps',
+        desc:
+          'In OBS, StudioOne, Discord, or similar apps, select the matching input source. If you used a virtual cable, choose CABLE Output / BlackHole output.',
+      },
+    },
+    modelGuideTitle: 'Model Guide',
+    openLink: 'Open',
+    downloads: {
+      hubert: {
+        title: 'HuBERT / ContentVec base model',
+        desc:
+          'Required for real RVC inference. Usually named hubert_base.pt and several hundred MB.',
+        where:
+          'Large file, not bundled with the installer. Download it only when real RVC inference is needed.',
+      },
+      rmvpe: {
+        title: 'RMVPE pitch model',
+        desc:
+          'The rmvpe.pt weight used by the RMVPE pitch algorithm. It tries to use GPU when CUDA is available.',
+        where: 'After downloading, go to Live Voice > General Settings > Pitch Settings and click Load RMVPE.',
+      },
+      rvcWebui: {
+        title: 'Official RVC-WebUI training package',
+        desc:
+          'Official WebUI repository with training scripts and project structure. Download source or archive, then configure the training environment yourself.',
+        where: 'After extracting, go to Training and click Load package folder.',
+      },
+      rvcReleases: {
+        title: 'RVC-WebUI Releases',
+        desc:
+          'Official Release page for users who prefer downloading archives or packaged builds instead of git clone.',
+        where: 'Extract it, then choose the root folder containing infer-web.py.',
+      },
+      uvrModels: {
+        title: 'RoFormer / MDX23C separation',
+        desc:
+          'Asset Processing can use BS-RoFormer, MelBand RoFormer, and MDX23C. These models are large and download to the local cache on first use.',
+        where:
+          'If professional models do not start, install audio-separator in the sidecar Python environment first.',
+      },
+    },
+    voiceModelsTitle: 'Voice models',
+    voiceModelsDesc:
+      'Mature lady, loli, mature man, and young boy models are available from HuggingFace, community marketplaces, or self-training. Sweet-cool voices usually need custom training or licensed fine-tuning data.',
+    importModelsTitle: 'In-app import',
+    importModelsDesc:
+      'Click Import model on a voice card, or use Add Custom Voice for your own .pth file. The app copies files and updates the manifest automatically.',
+    licenseNotice:
+      'Third-party RVC model licensing is complicated. For commercial use, train your own model or get permission from the author.',
+    routingTitle: 'Virtual Cable',
+    routingDirectTitle: 'Not required in every setup',
+    routingDirectDesc:
+      'If your audio interface has loopback/virtual channels, or StudioOne can route this app output onward, use that existing route.',
+    routingVirtualTitle: 'When VB-Cable / BlackHole helps',
+    routingVirtualDesc:
+      'If OBS, Discord, or another target app only accepts a microphone input and cannot hear this app output directly, a virtual cable turns the output into a selectable mic-like input.',
   },
 };

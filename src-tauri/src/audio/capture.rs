@@ -18,13 +18,13 @@ use std::sync::Arc;
 pub struct CaptureStream {
     _stream: SendStream,
     pub sample_rate: u32,
-    pub channels: u16,
     pub level_meter: Arc<Mutex<f32>>,
 }
 
 pub fn build_capture_stream(
     device_name: Option<&str>,
     producer: SampleProducer,
+    desired_sample_rate: Option<u32>,
 ) -> AppResult<CaptureStream> {
     let host = cpal::default_host();
     let device = pick_input_device(&host, device_name)?;
@@ -32,10 +32,11 @@ pub fn build_capture_stream(
     let supported = device
         .default_input_config()
         .map_err(|e| AppError::AudioDevice(format!("default_input_config: {e}")))?;
-    let sample_rate = supported.sample_rate().0;
+    let sample_rate = desired_sample_rate.unwrap_or_else(|| supported.sample_rate().0);
     let channels = supported.channels();
     let sample_format = supported.sample_format();
-    let cfg: StreamConfig = supported.into();
+    let mut cfg: StreamConfig = supported.into();
+    cfg.sample_rate = cpal::SampleRate(sample_rate);
 
     tracing::info!(
         "采集流：device={:?} sr={} ch={} fmt={:?}",
@@ -46,7 +47,14 @@ pub fn build_capture_stream(
     );
 
     let level_meter = Arc::new(Mutex::new(0.0_f32));
-    let stream = build_stream_inner(&device, &cfg, sample_format, producer, channels, level_meter.clone())?;
+    let stream = build_stream_inner(
+        &device,
+        &cfg,
+        sample_format,
+        producer,
+        channels,
+        level_meter.clone(),
+    )?;
     stream
         .play()
         .map_err(|e| AppError::AudioStream(format!("capture play: {e}")))?;
@@ -54,7 +62,6 @@ pub fn build_capture_stream(
     Ok(CaptureStream {
         _stream: SendStream::new(stream),
         sample_rate,
-        channels,
         level_meter,
     })
 }
@@ -96,11 +103,7 @@ fn build_stream_inner(
         SampleFormat::I16 => device.build_input_stream(
             cfg,
             move |data: &[i16], _| {
-                let mut tmp = Vec::with_capacity(data.len());
-                for s in data {
-                    tmp.push(*s as f32 / i16::MAX as f32);
-                }
-                push_downmixed(&tmp, channels, &mut producer, &level_meter);
+                push_downmixed_i16(data, channels, &mut producer, &level_meter);
             },
             err_fn,
             None,
@@ -108,17 +111,15 @@ fn build_stream_inner(
         SampleFormat::U16 => device.build_input_stream(
             cfg,
             move |data: &[u16], _| {
-                let mut tmp = Vec::with_capacity(data.len());
-                for s in data {
-                    tmp.push((*s as f32 - 32768.0) / 32768.0);
-                }
-                push_downmixed(&tmp, channels, &mut producer, &level_meter);
+                push_downmixed_u16(data, channels, &mut producer, &level_meter);
             },
             err_fn,
             None,
         ),
         other => {
-            return Err(AppError::AudioStream(format!("不支持的采样格式: {other:?}")));
+            return Err(AppError::AudioStream(format!(
+                "不支持的采样格式: {other:?}"
+            )));
         }
     };
 
@@ -141,6 +142,60 @@ fn push_downmixed(
         let mut sum = 0.0_f32;
         for c in 0..ch {
             sum += data[i * ch + c];
+        }
+        let mono = sum / ch as f32;
+        if mono.abs() > peak {
+            peak = mono.abs();
+        }
+        let _ = producer.try_push(mono);
+    }
+    let mut g = level_meter.lock();
+    *g = 0.8 * *g + 0.2 * peak;
+}
+
+fn push_downmixed_i16(
+    data: &[i16],
+    channels: u16,
+    producer: &mut SampleProducer,
+    level_meter: &Arc<Mutex<f32>>,
+) {
+    let ch = channels as usize;
+    if ch == 0 {
+        return;
+    }
+    let frames = data.len() / ch;
+    let mut peak = 0.0_f32;
+    for i in 0..frames {
+        let mut sum = 0.0_f32;
+        for c in 0..ch {
+            sum += data[i * ch + c] as f32 / i16::MAX as f32;
+        }
+        let mono = sum / ch as f32;
+        if mono.abs() > peak {
+            peak = mono.abs();
+        }
+        let _ = producer.try_push(mono);
+    }
+    let mut g = level_meter.lock();
+    *g = 0.8 * *g + 0.2 * peak;
+}
+
+fn push_downmixed_u16(
+    data: &[u16],
+    channels: u16,
+    producer: &mut SampleProducer,
+    level_meter: &Arc<Mutex<f32>>,
+) {
+    let ch = channels as usize;
+    if ch == 0 {
+        return;
+    }
+    let frames = data.len() / ch;
+    let mut peak = 0.0_f32;
+    for i in 0..frames {
+        let mut sum = 0.0_f32;
+        for c in 0..ch {
+            sum += (data[i * ch + c] as f32 - 32768.0) / 32768.0;
         }
         let mono = sum / ch as f32;
         if mono.abs() > peak {

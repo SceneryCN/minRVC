@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { tauriApi } from '@/utils/tauri-api';
 import { useAppStore } from './use-app-store';
 
@@ -7,32 +8,35 @@ interface UseEngineResult {
   stop: () => Promise<void>;
 }
 
-const METER_INTERVAL_MS = 80;
+const METER_INTERVAL_MS = 100;
 const STATUS_INTERVAL_MS = 500;
 
 export function useEngine(): UseEngineResult {
+  const { t } = useTranslation();
   const selectedInput = useAppStore((s) => s.selectedInput);
   const selectedOutput = useAppStore((s) => s.selectedOutput);
   const selectedVoice = useAppStore((s) => s.selectedVoice);
   const pitchShift = useAppStore((s) => s.pitchShift);
+  const realtimeConfig = useAppStore((s) => s.realtimeConfig);
   const setEngineStatus = useAppStore((s) => s.setEngineStatus);
   const setMeters = useAppStore((s) => s.setMeters);
   const setError = useAppStore((s) => s.setError);
+  const engineStatus = useAppStore((s) => s.engineStatus);
 
   const meterTimerRef = useRef<number | null>(null);
   const statusTimerRef = useRef<number | null>(null);
 
   const start = useCallback(async () => {
     if (!selectedVoice) {
-      setError('请先选择一个音色');
+      setError(t('engine.selectVoiceFirst'));
       return;
     }
     if (!selectedInput) {
-      setError('请先选择麦克风');
+      setError(t('engine.selectInputFirst'));
       return;
     }
     if (!selectedOutput) {
-      setError('请先选择输出设备');
+      setError(t('engine.selectOutputFirst'));
       return;
     }
     try {
@@ -43,13 +47,23 @@ export function useEngine(): UseEngineResult {
         output_device: selectedOutput,
         voice_id: selectedVoice,
         pitch_shift: pitchShift,
+        realtime_config: realtimeConfig,
       });
       setEngineStatus('Running');
     } catch (e) {
       setEngineStatus('Error');
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [selectedInput, selectedOutput, selectedVoice, pitchShift, setEngineStatus, setError]);
+  }, [
+    selectedInput,
+    selectedOutput,
+    selectedVoice,
+    pitchShift,
+    realtimeConfig,
+    setEngineStatus,
+    setError,
+    t,
+  ]);
 
   const stop = useCallback(async () => {
     try {
@@ -62,17 +76,8 @@ export function useEngine(): UseEngineResult {
     }
   }, [setEngineStatus, setError]);
 
-  // 轮询电平 + 状态
+  // 轮询引擎状态
   useEffect(() => {
-    meterTimerRef.current = window.setInterval(async () => {
-      try {
-        const m = await tauriApi.getAudioMeter();
-        setMeters(m.input_level, m.output_level);
-      } catch {
-        // 静默忽略
-      }
-    }, METER_INTERVAL_MS);
-
     statusTimerRef.current = window.setInterval(async () => {
       try {
         const s = await tauriApi.getEngineStatus();
@@ -83,10 +88,32 @@ export function useEngine(): UseEngineResult {
     }, STATUS_INTERVAL_MS);
 
     return () => {
-      if (meterTimerRef.current !== null) window.clearInterval(meterTimerRef.current);
       if (statusTimerRef.current !== null) window.clearInterval(statusTimerRef.current);
     };
-  }, [setMeters, setEngineStatus]);
+  }, [setEngineStatus]);
+
+  // 电平只在运行时轮询，避免空闲时持续刷新 React 状态。
+  useEffect(() => {
+    if (engineStatus !== 'Running') {
+      setMeters(0, 0);
+      return;
+    }
+    meterTimerRef.current = window.setInterval(async () => {
+      try {
+        const m = await tauriApi.getAudioMeter();
+        setMeters(m.input_level, m.output_level);
+      } catch {
+        // 静默忽略
+      }
+    }, METER_INTERVAL_MS);
+
+    return () => {
+      if (meterTimerRef.current !== null) {
+        window.clearInterval(meterTimerRef.current);
+        meterTimerRef.current = null;
+      }
+    };
+  }, [engineStatus, setMeters]);
 
   return { start, stop };
 }
