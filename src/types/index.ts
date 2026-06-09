@@ -40,6 +40,7 @@ export interface EngineStatusPayload {
   status: EngineStatus;
   current_voice: string | null;
   pitch_shift: number;
+  profile: RealtimeProfile | null;
 }
 
 export interface AudioMeter {
@@ -75,6 +76,28 @@ export interface RealtimeConfig {
   crossfadeMs: number;
   extraInferenceMs: number;
   bufferMs: number;
+}
+
+export interface RealtimeProfile {
+  inputResampleMs?: number;
+  contentvecMs?: number;
+  faissMs?: number;
+  f0Ms?: number;
+  generatorMs?: number;
+  rmsMs?: number;
+  vadMs?: number;
+  pipelineInferMs?: number;
+  postMs?: number;
+  solaMs?: number;
+  totalMs?: number;
+  mode?: string;
+  device?: string;
+  f0Method?: string;
+  chunkSamples?: number;
+  rustDspMs?: number;
+  rustSendMs?: number;
+  rustOutputMs?: number;
+  transport?: string;
 }
 
 /**

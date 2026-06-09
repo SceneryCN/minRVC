@@ -16,3 +16,4 @@
 //!     {"type":"error","message":"..."}                                            // text
 
 pub mod ws_client;
+pub mod shm_ring;

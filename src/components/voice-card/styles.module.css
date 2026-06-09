@@ -162,7 +162,7 @@
   margin: 0;
   font-size: var(--font-size-xl);
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   color: var(--color-text-primary);
 }
 
@@ -220,7 +220,7 @@
   font-family: var(--font-family-mono);
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 .badge {

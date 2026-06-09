@@ -16,6 +16,17 @@
   contain-intrinsic-size: 360px;
 }
 
+.profileGroup {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+}
+
 .groupHead {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -70,7 +81,7 @@
 
 .sliderText small {
   color: var(--color-text-tertiary);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   line-height: 1.35;
 }
 
@@ -181,7 +192,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-text-tertiary);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
 }
 
 .f0ModelActions {
@@ -201,7 +212,7 @@
   color: var(--color-text-secondary);
   background: var(--color-bg-base);
   border: 1px solid var(--color-border);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -228,6 +239,99 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-3);
+}
+
+.presetRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.presetBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.presetBtn:hover:not(:disabled),
+.presetBtn[data-recommended] {
+  color: var(--color-text-primary);
+  border-color: color-mix(in srgb, var(--color-accent) 50%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-surface));
+}
+
+.presetBtn:disabled {
+  opacity: 0.55;
+}
+
+.presetBtn svg {
+  width: 13px;
+  height: 13px;
+  color: var(--color-accent);
+}
+
+.profileGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.profileMeta {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.profileMeta span {
+  min-width: 54px;
+  max-width: 180px;
+  padding: 5px 8px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profileItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+}
+
+.profileItem span {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+}
+
+.profileItem strong {
+  color: var(--color-text-primary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .notice {
@@ -260,7 +364,9 @@
 @media (max-width: 720px) {
   .sliderField,
   .sampleRateRow,
-  .f0ModelBox {
+  .f0ModelBox,
+  .presetRow,
+  .profileGrid {
     grid-template-columns: 1fr;
   }
 

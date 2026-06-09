@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import inspect
 from pathlib import Path
+import time
 from typing import Optional
 
 import numpy as np
@@ -37,6 +38,28 @@ class _ModelMeta:
     version: str  # "v1" / "v2"
     feature_dim: int  # 256 / 768
     n_speakers: int
+
+
+@dataclass
+class InferenceProfile:
+    input_resample_ms: float = 0.0
+    contentvec_ms: float = 0.0
+    faiss_ms: float = 0.0
+    f0_ms: float = 0.0
+    generator_ms: float = 0.0
+    rms_ms: float = 0.0
+    total_ms: float = 0.0
+
+    def to_dict(self) -> dict:
+        return {
+            "inputResampleMs": round(self.input_resample_ms, 2),
+            "contentvecMs": round(self.contentvec_ms, 2),
+            "faissMs": round(self.faiss_ms, 2),
+            "f0Ms": round(self.f0_ms, 2),
+            "generatorMs": round(self.generator_ms, 2),
+            "rmsMs": round(self.rms_ms, 2),
+            "totalMs": round(self.total_ms, 2),
+        }
 
 
 class RealRVCInferencer:
@@ -76,6 +99,9 @@ class RealRVCInferencer:
         self._stream_pitch: Optional[np.ndarray] = None
         self._stream_pitchf: Optional[np.ndarray] = None
         self._supports_stream_decode = False
+        self.last_profile = InferenceProfile()
+        self._sid_t = None
+        self._feats_len_cache: dict[int, object] = {}
 
         try:
             self._load_all()
@@ -103,6 +129,7 @@ class RealRVCInferencer:
         self._stream_feats = None
         self._stream_pitch = None
         self._stream_pitchf = None
+        self._feats_len_cache.clear()
 
     def _load_all(self) -> None:
         from rvc_engine.vendor import rvc as rvc_pkg
@@ -229,26 +256,39 @@ class RealRVCInferencer:
         if not self._loaded or self.meta is None or self._net_g is None:
             return self._fallback_pitch_shift(pcm, in_sr, pitch_semitones)
 
+        t_total = time.perf_counter()
+        profile = InferenceProfile()
+
         # 1) 重采样到 16kHz 给 ContentVec / RMVPE 用
+        t = time.perf_counter()
         pcm_16k = _resample(pcm, in_sr, 16_000) if in_sr != 16_000 else pcm
         pcm_16k = pcm_16k.astype(np.float32)
+        profile.input_resample_ms = _elapsed_ms(t)
 
-        feats = self._extract_indexed_features(pcm_16k, index_rate)
+        feats = self._extract_indexed_features(pcm_16k, index_rate, profile)
         if self.meta.if_f0:
+            t = time.perf_counter()
             pitch, pitchf = self._extract_f0(
                 pcm_16k,
                 pitch_semitones=pitch_semitones,
                 filter_radius=f0_filter_radius,
                 protect=protect,
             )
+            profile.f0_ms = _elapsed_ms(t)
         else:
             pitch = pitchf = None
 
+        t = time.perf_counter()
         audio_np = self._synthesize_from_features(feats, pitch, pitchf, out_sr)
+        profile.generator_ms = _elapsed_ms(t)
 
         if 0.0 < rms_mix_rate < 1.0:
+            t = time.perf_counter()
             audio_np = _apply_rms_mix(audio_np, pcm, in_sr, out_sr, rms_mix_rate)
+            profile.rms_ms = _elapsed_ms(t)
 
+        profile.total_ms = _elapsed_ms(t_total)
+        self.last_profile = profile
         return audio_np
 
     def infer_stream(
@@ -273,8 +313,13 @@ class RealRVCInferencer:
         if not self._loaded or self.meta is None or self._net_g is None:
             return self._fallback_pitch_shift(pcm, in_sr, pitch_semitones)
 
+        t_total = time.perf_counter()
+        profile = InferenceProfile()
+
+        t = time.perf_counter()
         pcm_16k = _resample(pcm, in_sr, 16_000) if in_sr != 16_000 else pcm
         pcm_16k = pcm_16k.astype(np.float32)
+        profile.input_resample_ms = _elapsed_ms(t)
         if pcm_16k.size == 0:
             return np.zeros(0, dtype=np.float32)
 
@@ -283,7 +328,7 @@ class RealRVCInferencer:
             np.concatenate([prefix, pcm_16k]) if prefix.size else pcm_16k
         ).astype(np.float32)
 
-        feats_compute = self._extract_indexed_features(compute_pcm, index_rate)
+        feats_compute = self._extract_indexed_features(compute_pcm, index_rate, profile)
         new_feat_count = _estimate_tail_count(
             total_count=feats_compute.shape[0],
             total_samples=compute_pcm.shape[0],
@@ -292,12 +337,14 @@ class RealRVCInferencer:
         new_feats = feats_compute[-new_feat_count:]
 
         if self.meta.if_f0:
+            t = time.perf_counter()
             pitch_compute, pitchf_compute = self._extract_f0(
                 compute_pcm,
                 pitch_semitones=pitch_semitones,
                 filter_radius=f0_filter_radius,
                 protect=protect,
             )
+            profile.f0_ms = _elapsed_ms(t)
             new_pitch_count = _estimate_tail_count(
                 total_count=pitch_compute.shape[0],
                 total_samples=compute_pcm.shape[0],
@@ -337,6 +384,7 @@ class RealRVCInferencer:
         if self._stream_feats is None or self._stream_feats.size == 0:
             return np.zeros(int(round(pcm_16k.shape[0] * out_sr / 16_000)), dtype=np.float32)
 
+        t = time.perf_counter()
         audio_np = self._synthesize_from_features(
             self._stream_feats,
             self._stream_pitch if self.meta.if_f0 else None,
@@ -348,8 +396,10 @@ class RealRVCInferencer:
                 else new_feats.shape[0] * 2
             ),
         )
+        profile.generator_ms = _elapsed_ms(t)
 
         if 0.0 < rms_mix_rate < 1.0:
+            t = time.perf_counter()
             audio_np = _apply_rms_mix(
                 audio_np,
                 self._stream_source_16k,
@@ -357,24 +407,33 @@ class RealRVCInferencer:
                 out_sr,
                 rms_mix_rate,
             )
+            profile.rms_ms = _elapsed_ms(t)
 
         target_out_len = int(round(pcm_16k.shape[0] * out_sr / 16_000))
         if audio_np.shape[0] < target_out_len:
             audio_np = np.concatenate(
                 [audio_np, np.zeros(target_out_len - audio_np.shape[0], dtype=np.float32)]
             )
-        return audio_np[-target_out_len:]
+        out = audio_np[-target_out_len:]
+        profile.total_ms = _elapsed_ms(t_total)
+        self.last_profile = profile
+        return out
 
     def _extract_indexed_features(
         self,
         pcm_16k: np.ndarray,
         index_rate: float,
+        profile: Optional[InferenceProfile] = None,
     ) -> np.ndarray:
         assert self._content_vec is not None
+        t = time.perf_counter()
         feats = self._content_vec.extract(pcm_16k).astype(np.float32)
+        if profile is not None:
+            profile.contentvec_ms = _elapsed_ms(t)
         if self._faiss_index is None or self._big_npy is None or index_rate <= 0:
             return feats
         try:
+            t = time.perf_counter()
             _, ix = self._faiss_index.search(feats, k=8)
             weights = np.square(
                 1
@@ -390,7 +449,10 @@ class RealRVCInferencer:
             searched = (
                 self._big_npy[ix] * np.expand_dims(weights, axis=-1)
             ).sum(axis=-2)
-            return ((1 - index_rate) * feats + index_rate * searched).astype(np.float32)
+            out = ((1 - index_rate) * feats + index_rate * searched).astype(np.float32)
+            if profile is not None:
+                profile.faiss_ms = _elapsed_ms(t)
+            return out
         except Exception as e:  # noqa: BLE001
             logger.debug(f"Faiss 检索失败，跳过: {e}")
             return feats
@@ -445,8 +507,13 @@ class RealRVCInferencer:
         else:
             pitch_t = pitchf_t = None
 
-        sid_t = torch.tensor([0], device=self.device).long()
-        feats_len_t = torch.tensor([t_feats], device=self.device).long()
+        if self._sid_t is None:
+            self._sid_t = torch.tensor([0], device=self.device).long()
+        sid_t = self._sid_t
+        feats_len_t = self._feats_len_cache.get(t_feats)
+        if feats_len_t is None:
+            feats_len_t = torch.tensor([t_feats], device=self.device).long()
+            self._feats_len_cache[t_feats] = feats_len_t
         skip_head_t = return_length_t = return_length2_t = None
         if tail_frames_100hz is not None and self._supports_stream_decode:
             return_len = max(1, min(t_feats, int(tail_frames_100hz)))
@@ -554,6 +621,10 @@ def _resample(pcm: np.ndarray, sr_in: int, sr_out: int) -> np.ndarray:
             x_in = np.linspace(0, 1, pcm.shape[0], endpoint=False)
             x_out = np.linspace(0, 1, n_out, endpoint=False)
             return np.interp(x_out, x_in, pcm).astype(np.float32)
+
+
+def _elapsed_ms(start: float) -> float:
+    return (time.perf_counter() - start) * 1000.0
 
 
 def _align_length(arr: np.ndarray, target_len: int) -> np.ndarray:

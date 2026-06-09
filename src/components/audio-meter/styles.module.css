@@ -19,7 +19,7 @@
   gap: 6px;
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   text-transform: uppercase;
   font-weight: 600;
 }
@@ -34,7 +34,7 @@
   font-family: var(--font-family-mono);
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 .bar {

@@ -46,13 +46,14 @@ class SOLAStitcher:
         sl = self.search_len
         ref = self.tail
         win = chunk[: cf + sl]
+        ref_norm = float(np.linalg.norm(ref)) + 1e-9
 
         best = 0
         best_corr = -1.0
         for offset in range(sl + 1):
             seg = win[offset : offset + cf]
             num = float(np.dot(ref, seg))
-            denom = float(np.linalg.norm(ref) * np.linalg.norm(seg)) + 1e-9
+            denom = ref_norm * (float(np.linalg.norm(seg)) + 1e-9)
             corr = num / denom
             if corr > best_corr:
                 best_corr = corr

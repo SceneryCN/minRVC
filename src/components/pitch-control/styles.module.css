@@ -18,7 +18,7 @@
   gap: 6px;
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   text-transform: uppercase;
   font-weight: 600;
 }
@@ -34,7 +34,7 @@
   font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--color-text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 
 .value > small {
@@ -126,6 +126,6 @@
   justify-content: space-between;
   padding: 0 4px;
   font-family: var(--font-family-mono);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
 }

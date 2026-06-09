@@ -33,13 +33,13 @@
   --font-family-mono:
     'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas, monospace;
 
-  --font-size-xs: 11px;
-  --font-size-sm: 13px;
-  --font-size-md: 14px;
-  --font-size-lg: 16px;
-  --font-size-xl: 20px;
-  --font-size-2xl: 28px;
-  --font-size-3xl: 40px;
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-md: 15px;
+  --font-size-lg: 17px;
+  --font-size-xl: 21px;
+  --font-size-2xl: 30px;
+  --font-size-3xl: 42px;
 
   /* ─── 动画 ─── */
   --transition-fast: 120ms cubic-bezier(0.2, 0, 0.2, 1);

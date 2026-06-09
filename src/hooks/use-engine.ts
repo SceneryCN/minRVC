@@ -21,6 +21,7 @@ export function useEngine(): UseEngineResult {
   const setEngineStatus = useAppStore((s) => s.setEngineStatus);
   const setMeters = useAppStore((s) => s.setMeters);
   const setError = useAppStore((s) => s.setError);
+  const setRealtimeProfile = useAppStore((s) => s.setRealtimeProfile);
   const engineStatus = useAppStore((s) => s.engineStatus);
 
   const meterTimerRef = useRef<number | null>(null);
@@ -52,6 +53,7 @@ export function useEngine(): UseEngineResult {
       setEngineStatus('Running');
     } catch (e) {
       setEngineStatus('Error');
+      setRealtimeProfile(null);
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [
@@ -70,11 +72,13 @@ export function useEngine(): UseEngineResult {
       setEngineStatus('Stopping');
       await tauriApi.stopEngine();
       setEngineStatus('Stopped');
+      setRealtimeProfile(null);
     } catch (e) {
       setEngineStatus('Error');
+      setRealtimeProfile(null);
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [setEngineStatus, setError]);
+  }, [setEngineStatus, setError, setRealtimeProfile]);
 
   // 轮询引擎状态
   useEffect(() => {
@@ -82,6 +86,7 @@ export function useEngine(): UseEngineResult {
       try {
         const s = await tauriApi.getEngineStatus();
         setEngineStatus(s.status);
+        setRealtimeProfile(s.profile);
       } catch {
         // 静默忽略
       }
@@ -90,12 +95,13 @@ export function useEngine(): UseEngineResult {
     return () => {
       if (statusTimerRef.current !== null) window.clearInterval(statusTimerRef.current);
     };
-  }, [setEngineStatus]);
+  }, [setEngineStatus, setRealtimeProfile]);
 
   // 电平只在运行时轮询，避免空闲时持续刷新 React 状态。
   useEffect(() => {
     if (engineStatus !== 'Running') {
       setMeters(0, 0);
+      setRealtimeProfile(null);
       return;
     }
     meterTimerRef.current = window.setInterval(async () => {
@@ -113,7 +119,7 @@ export function useEngine(): UseEngineResult {
         meterTimerRef.current = null;
       }
     };
-  }, [engineStatus, setMeters]);
+  }, [engineStatus, setMeters, setRealtimeProfile]);
 
   return { start, stop };
 }

@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "license": "MIT",
   "description": "傻瓜式实时 RVC 变声器 - Tauri + Rust + Python sidecar",
   "scripts": {
     "dev": "vite",

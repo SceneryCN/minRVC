@@ -1,6 +1,6 @@
 //! 引擎控制命令：start / stop / 切换音色 / 调音高。
 
-use crate::audio::engine::{EngineStatus, RealtimeConfig, StartConfig};
+use crate::audio::engine::{EngineStatus, RealtimeConfig, RealtimeProfile, StartConfig};
 use crate::error::AppResult;
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,7 @@ pub struct EngineStatusPayload {
     pub status: EngineStatus,
     pub current_voice: Option<String>,
     pub pitch_shift: i32,
+    pub profile: Option<RealtimeProfile>,
 }
 
 #[tauri::command]
@@ -73,6 +74,7 @@ pub async fn get_engine_status(state: State<'_, AppState>) -> AppResult<EngineSt
         status: engine.status(),
         current_voice: state.current_voice.read().clone(),
         pitch_shift: *state.pitch_shift.read(),
+        profile: engine.profile(),
     })
 }
 

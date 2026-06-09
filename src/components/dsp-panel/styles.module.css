@@ -208,7 +208,7 @@
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 
 .probBar {

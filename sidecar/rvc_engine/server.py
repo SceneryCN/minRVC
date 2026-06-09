@@ -20,7 +20,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import struct
+import time
 from typing import Optional
 
 import numpy as np
@@ -32,6 +32,7 @@ from pydantic import BaseModel
 from .config import SidecarConfig
 from .pipeline import RVCPipeline
 from .separate import SeparationManager
+from .shm_transport import ShmTransport
 from .train import TrainingManager, detect_gpu
 
 
@@ -99,6 +100,10 @@ def create_app(cfg: SidecarConfig) -> FastAPI:
     @app.get("/voices")
     async def voices() -> JSONResponse:
         return JSONResponse({"voices": pipeline.list_voices()})
+
+    @app.get("/profile")
+    async def profile() -> JSONResponse:
+        return JSONResponse({"profile": pipeline.profile()})
 
     # ---------- 离线人声分离 ----------
 
@@ -182,6 +187,8 @@ def create_app(cfg: SidecarConfig) -> FastAPI:
         in_sr: Optional[int] = None
         out_sr: Optional[int] = None
         ready_sent = False
+        last_profile_sent = 0.0
+        shm: Optional[ShmTransport] = None
 
         try:
             while True:
@@ -199,6 +206,18 @@ def create_app(cfg: SidecarConfig) -> FastAPI:
                         config = RealtimeConfigRequest.model_validate(
                             payload.get("config", {})
                         )
+                        shm_cfg = payload.get("shm")
+                        if shm_cfg:
+                            try:
+                                shm = ShmTransport(
+                                    input_path=str(shm_cfg["inputPath"]),
+                                    output_path=str(shm_cfg["outputPath"]),
+                                    capacity_samples=int(shm_cfg["capacitySamples"]),
+                                )
+                                logger.info("shared-memory PCM transport enabled")
+                            except Exception as e:  # noqa: BLE001
+                                logger.warning(f"shared-memory transport disabled: {e}")
+                                shm = None
                         await asyncio.to_thread(
                             pipeline.prepare,
                             voice_id,
@@ -207,7 +226,9 @@ def create_app(cfg: SidecarConfig) -> FastAPI:
                             out_sr,
                             config.model_dump(),
                         )
-                        await ws.send_text(json.dumps({"type": "ready"}))
+                        await ws.send_text(
+                            json.dumps({"type": "ready", "use_shm": shm is not None})
+                        )
                         ready_sent = True
                         logger.info(
                             f"init voice={voice_id} pitch={pitch} in_sr={in_sr} out_sr={out_sr}"
@@ -237,6 +258,20 @@ def create_app(cfg: SidecarConfig) -> FastAPI:
                             json.dumps({"type": "status", "state": "config_changed"})
                         )
 
+                    elif mtype == "shm_audio":
+                        if not ready_sent or shm is None:
+                            continue
+                        samples = shm.input.read()
+                        if samples.size == 0:
+                            continue
+                        out = await asyncio.to_thread(pipeline.process, samples)
+                        if out is not None and out.size > 0:
+                            shm.output.write_lossy(out)
+                        now = time.monotonic()
+                        if now - last_profile_sent >= 0.5:
+                            await _send_profile(ws, pipeline)
+                            last_profile_sent = now
+
                     else:
                         logger.warning(f"未知文本消息: {payload}")
 
@@ -260,6 +295,10 @@ def create_app(cfg: SidecarConfig) -> FastAPI:
                     out = await asyncio.to_thread(pipeline.process, samples)
                     if out is not None and out.size > 0:
                         await ws.send_bytes(out.astype(np.float32).tobytes())
+                    now = time.monotonic()
+                    if now - last_profile_sent >= 0.5:
+                        await _send_profile(ws, pipeline)
+                        last_profile_sent = now
 
         except WebSocketDisconnect:
             logger.info("WebSocket 断开")
@@ -269,8 +308,17 @@ def create_app(cfg: SidecarConfig) -> FastAPI:
                 await ws.send_text(json.dumps({"type": "error", "message": str(e)}))
             except Exception:  # noqa: BLE001
                 pass
+        finally:
+            if shm is not None:
+                shm.close()
 
     return app
+
+
+async def _send_profile(ws: WebSocket, pipeline: RVCPipeline) -> None:
+    profile = pipeline.profile()
+    if profile:
+        await ws.send_text(json.dumps({"type": "profile", "profile": profile}))
 
 
 def main() -> None:

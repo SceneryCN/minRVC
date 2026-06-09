@@ -6,6 +6,7 @@ import type {
   DspStatus,
   EngineStatus,
   RealtimeConfig,
+  RealtimeProfile,
   SeparationStatus,
   TrainingStatus,
   VoiceId,
@@ -68,6 +69,7 @@ interface AppStoreState {
   dspConfig: DspConfig;
   dspStatus: DspStatus;
   realtimeConfig: RealtimeConfig;
+  realtimeProfile: RealtimeProfile | null;
 
   separationJob: SeparationStatus | null;
   trainingJob: TrainingStatus | null;
@@ -90,6 +92,7 @@ interface AppStoreActions {
   setDspStatus: (status: DspStatus) => void;
   setRealtimeConfig: (cfg: RealtimeConfig) => void;
   patchRealtimeConfig: (patch: Partial<RealtimeConfig>) => void;
+  setRealtimeProfile: (profile: RealtimeProfile | null) => void;
   setSeparationJob: (job: SeparationStatus | null) => void;
   setTrainingJob: (job: TrainingStatus | null) => void;
 }
@@ -115,6 +118,7 @@ export const useAppStore = create<AppStoreState & AppStoreActions>((set) => ({
   dspConfig: DEFAULT_DSP_CONFIG,
   dspStatus: DEFAULT_DSP_STATUS,
   realtimeConfig: DEFAULT_REALTIME_CONFIG,
+  realtimeProfile: null,
 
   separationJob: null,
   trainingJob: null,
@@ -157,6 +161,7 @@ export const useAppStore = create<AppStoreState & AppStoreActions>((set) => ({
   setRealtimeConfig: (cfg) => set({ realtimeConfig: cfg }),
   patchRealtimeConfig: (patch) =>
     set((s) => ({ realtimeConfig: { ...s.realtimeConfig, ...patch } })),
+  setRealtimeProfile: (profile) => set({ realtimeProfile: profile }),
   setSeparationJob: (job) => set({ separationJob: job }),
   setTrainingJob: (job) => set({ trainingJob: job }),
 }));

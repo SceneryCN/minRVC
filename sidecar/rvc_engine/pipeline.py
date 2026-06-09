@@ -31,6 +31,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 from typing import List, Optional
 
 import numpy as np
@@ -66,6 +67,8 @@ class RVCPipeline:
         self._inferencer: Optional[RealRVCInferencer] = None
         self._sola: Optional[SOLAStitcher] = None
         self._history_16k = np.zeros(0, dtype=np.float32)
+        self._last_profile: dict = {}
+        self._profile_ema: dict[str, float] = {}
 
     # ---------- 控制面 ----------
 
@@ -197,12 +200,18 @@ class RVCPipeline:
             )
         return out
 
+    def profile(self) -> dict:
+        return dict(self._last_profile)
+
     # ---------- 数据面 ----------
 
     def process(self, samples_in_sr: np.ndarray) -> Optional[np.ndarray]:
         """处理一个 chunk，返回输出 PCM（@out_sr，mono float32）。"""
         if samples_in_sr.size == 0:
             return None
+
+        t_total = time.perf_counter()
+        t = time.perf_counter()
 
         # 1) VAD：纯静音直接旁通静音，节省 GPU
         if not simple_energy_vad(samples_in_sr, threshold=1e-3):
@@ -214,22 +223,57 @@ class RVCPipeline:
                 int(samples_in_sr.shape[0] * self.out_sr / self.in_sr),
                 dtype=np.float32,
             )
+            self._update_profile(
+                {
+                    "vadMs": _elapsed_ms(t),
+                    "totalMs": _elapsed_ms(t_total),
+                    "mode": "silence",
+                    "device": self.device,
+                    "f0Method": self.cfg.f0_method,
+                    "chunkSamples": int(samples_in_sr.shape[0]),
+                }
+            )
             return silent_out
 
+        vad_ms = _elapsed_ms(t)
+        t_infer = time.perf_counter()
         if self._inferencer is not None:
             out = self._infer_with_context(samples_in_sr)
+            infer_profile = self._inferencer.last_profile.to_dict()
+            mode = "rvc"
         else:
             out = self._fallback_pitch_shift(samples_in_sr)
+            infer_profile = {}
+            mode = "fallback"
+        infer_ms = _elapsed_ms(t_infer)
 
+        t_post = time.perf_counter()
         out = self._apply_voice_shape(out)
 
         if self.resample_sr > 0 and self.resample_sr != self.out_sr:
             out = _resample(out, self.out_sr, self.resample_sr)
             out = _resample(out, self.resample_sr, self.out_sr)
+        post_ms = _elapsed_ms(t_post)
 
         # SOLA 拼接，消除块边界毛刺
+        sola_ms = 0.0
         if self._sola is not None:
+            t_sola = time.perf_counter()
             out = self._sola.process(out)
+            sola_ms = _elapsed_ms(t_sola)
+        profile = {
+            **infer_profile,
+            "vadMs": vad_ms,
+            "pipelineInferMs": infer_ms,
+            "postMs": post_ms,
+            "solaMs": sola_ms,
+            "totalMs": _elapsed_ms(t_total),
+            "mode": mode,
+            "device": self.device,
+            "f0Method": self.cfg.f0_method,
+            "chunkSamples": int(samples_in_sr.shape[0]),
+        }
+        self._update_profile(profile)
         return out
 
     # ---------- 内部 ----------
@@ -328,6 +372,19 @@ class RVCPipeline:
             return pcm * (1.0 - 0.16 * amount) + low * (0.28 * amount)
         return pcm + high * (0.36 * amount)
 
+    def _update_profile(self, profile: dict) -> None:
+        alpha = 0.18
+        smoothed: dict = {}
+        for key, value in profile.items():
+            if isinstance(value, (int, float)):
+                old = self._profile_ema.get(key)
+                new = float(value) if old is None else old * (1.0 - alpha) + float(value) * alpha
+                self._profile_ema[key] = new
+                smoothed[key] = round(new, 2)
+            else:
+                smoothed[key] = value
+        self._last_profile = smoothed
+
     @staticmethod
     def _cuda_available() -> bool:
         try:
@@ -336,3 +393,7 @@ class RVCPipeline:
             return bool(torch.cuda.is_available())
         except Exception:  # noqa: BLE001
             return False
+
+
+def _elapsed_ms(start: float) -> float:
+    return (time.perf_counter() - start) * 1000.0

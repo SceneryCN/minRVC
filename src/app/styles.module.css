@@ -181,14 +181,14 @@
   margin: 0;
   font-size: var(--font-size-lg);
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   color: var(--color-text-primary);
 }
 
 .brandSubtitle {
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 
 .headerRight {
@@ -208,7 +208,7 @@
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 
 .statusDot {
@@ -286,7 +286,7 @@
   margin: 0;
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
   text-transform: uppercase;
   font-weight: 700;
 }
@@ -412,7 +412,7 @@
   border-radius: 50%;
   background: var(--color-accent-soft);
   color: var(--color-accent);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: 700;
   font-family: var(--font-family-mono);
 }

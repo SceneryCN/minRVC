@@ -18,5 +18,5 @@ def simple_energy_vad(pcm: np.ndarray, threshold: float = 1e-3) -> bool:
     if pcm.size == 0:
         return False
     samples = pcm if pcm.dtype == np.float32 else pcm.astype(np.float32)
-    rms = float(np.sqrt(np.mean(np.square(samples)) + 1e-12))
-    return rms > threshold
+    energy = float(np.mean(np.square(samples)))
+    return energy > threshold * threshold

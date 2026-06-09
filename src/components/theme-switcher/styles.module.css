@@ -14,8 +14,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 28px;
+  width: 34px;
+  height: 30px;
   border-radius: var(--radius-pill);
   color: var(--color-text-tertiary);
   transition: color var(--transition-fast);
@@ -34,7 +34,7 @@
   position: absolute;
   top: 4px;
   bottom: 4px;
-  width: 32px;
+  width: 34px;
   background: var(--color-bg-overlay);
   border-radius: var(--radius-pill);
   box-shadow: var(--shadow-sm);

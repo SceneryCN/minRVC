@@ -39,6 +39,7 @@ class ContentVecExtractor:
         self.layer = layer
         self._model = None
         self._task_cfg = None
+        self._padding_mask = None
 
     def load(self) -> None:
         """加载 fairseq HuBERT 模型，必要时延迟到首次调用。"""
@@ -103,10 +104,15 @@ class ContentVecExtractor:
         if feats.dim() == 1:
             feats = feats.unsqueeze(0)
         # padding mask: 全 False（无 padding）
-        padding_mask = torch.zeros(feats.shape, dtype=torch.bool, device=feats.device)
+        if self._padding_mask is None or tuple(self._padding_mask.shape) != tuple(feats.shape):
+            self._padding_mask = torch.zeros(
+                feats.shape,
+                dtype=torch.bool,
+                device=feats.device,
+            )
         inputs = {
             "source": feats,
-            "padding_mask": padding_mask,
+            "padding_mask": self._padding_mask,
             "output_layer": self.layer,
         }
         with torch.no_grad():

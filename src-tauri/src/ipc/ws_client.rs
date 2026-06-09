@@ -1,7 +1,10 @@
 //! WebSocket 客户端：连接到本地 Python sidecar。
+//!
+//! 这里是 Rust 音频引擎和 Python 推理进程之间的 transport 边界。
+//! 当前 MVP 使用 WebSocket；如果后续 profile 显示 IPC 成为瓶颈，可以在这一层替换为共享内存 ring。
 
 use crate::error::{AppError, AppResult};
-use crate::audio::engine::RealtimeConfig;
+use crate::audio::engine::{RealtimeConfig, RealtimeProfile};
 use futures_util::stream::SplitSink;
 use futures_util::stream::SplitStream;
 use futures_util::{SinkExt, StreamExt};
@@ -21,6 +24,7 @@ enum ClientMessage<'a> {
         in_sr: u32,
         out_sr: u32,
         config: &'a RealtimeConfig,
+        shm: Option<&'a ShmInitConfig>,
     },
     SetVoice {
         voice_id: &'a str,
@@ -31,20 +35,33 @@ enum ClientMessage<'a> {
     SetRealtimeConfig {
         config: &'a RealtimeConfig,
     },
+    ShmAudio {
+        samples: usize,
+    },
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
-    Ready,
+    Ready { use_shm: Option<bool> },
     Status { state: String },
+    Profile { profile: RealtimeProfile },
     Error { message: String },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShmInitConfig {
+    pub input_path: String,
+    pub output_path: String,
+    pub capacity_samples: usize,
 }
 
 #[derive(Debug)]
 pub enum SidecarFrame {
-    Audio(Vec<f32>),
+    AudioBytes(Vec<u8>),
     Status(String),
+    Profile(RealtimeProfile),
     Error(String),
 }
 
@@ -75,6 +92,7 @@ impl SidecarClient {
         in_sr: u32,
         out_sr: u32,
         config: &RealtimeConfig,
+        shm: Option<&ShmInitConfig>,
     ) -> AppResult<()> {
         let msg = ClientMessage::Init {
             voice_id,
@@ -82,6 +100,7 @@ impl SidecarClient {
             in_sr,
             out_sr,
             config,
+            shm,
         };
         let json = serde_json::to_string(&msg)?;
         self.inner
@@ -91,7 +110,7 @@ impl SidecarClient {
         Ok(())
     }
 
-    pub async fn wait_ready(&mut self, timeout: Duration) -> AppResult<()> {
+    pub async fn wait_ready(&mut self, timeout: Duration) -> AppResult<bool> {
         tokio::time::timeout(timeout, async {
             loop {
                 let msg = self
@@ -100,10 +119,11 @@ impl SidecarClient {
                     .await
                     .ok_or_else(|| AppError::WebSocket("sidecar 在 ready 前关闭连接".into()))?;
                 match parse_server_message(msg)? {
-                    ServerMessage::Ready => return Ok(()),
+                    ServerMessage::Ready { use_shm } => return Ok(use_shm.unwrap_or(false)),
                     ServerMessage::Status { state } => {
                         tracing::debug!("sidecar init status: {state}");
                     }
+                    ServerMessage::Profile { .. } => {}
                     ServerMessage::Error { message } => {
                         return Err(AppError::WebSocket(format!(
                             "sidecar init error: {message}"
@@ -124,10 +144,7 @@ impl SidecarClient {
 
 impl SidecarSender {
     pub async fn send_audio(&mut self, samples: &[f32]) -> AppResult<()> {
-        let mut bytes = Vec::with_capacity(samples.len() * 4);
-        for s in samples {
-            bytes.extend_from_slice(&s.to_le_bytes());
-        }
+        let bytes = bytemuck::cast_slice(samples).to_vec();
         self.sink
             .send(Message::Binary(bytes.into()))
             .await
@@ -147,6 +164,11 @@ impl SidecarSender {
 
     pub async fn set_realtime_config(&mut self, config: &RealtimeConfig) -> AppResult<()> {
         let msg = ClientMessage::SetRealtimeConfig { config };
+        self.send_control(msg).await
+    }
+
+    pub async fn notify_shm_audio(&mut self, samples: usize) -> AppResult<()> {
+        let msg = ClientMessage::ShmAudio { samples };
         self.send_control(msg).await
     }
 
@@ -181,16 +203,12 @@ impl SidecarReceiver {
                 if bytes.len() % 4 != 0 {
                     return Some(Err(AppError::WebSocket("二进制长度不是 4 的倍数".into())));
                 }
-                let mut samples = Vec::with_capacity(bytes.len() / 4);
-                for chunk in bytes.chunks_exact(4) {
-                    let v = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-                    samples.push(v);
-                }
-                Some(Ok(SidecarFrame::Audio(samples)))
+                Some(Ok(SidecarFrame::AudioBytes(bytes)))
             }
             Ok(Message::Text(text)) => match serde_json::from_str::<ServerMessage>(&text) {
-                Ok(ServerMessage::Ready) => Some(Ok(SidecarFrame::Status("ready".into()))),
+                Ok(ServerMessage::Ready { .. }) => Some(Ok(SidecarFrame::Status("ready".into()))),
                 Ok(ServerMessage::Status { state }) => Some(Ok(SidecarFrame::Status(state))),
+                Ok(ServerMessage::Profile { profile }) => Some(Ok(SidecarFrame::Profile(profile))),
                 Ok(ServerMessage::Error { message }) => Some(Ok(SidecarFrame::Error(message))),
                 Err(e) => Some(Err(AppError::WebSocket(format!("反序列化失败: {e}")))),
             },

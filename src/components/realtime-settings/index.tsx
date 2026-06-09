@@ -8,11 +8,12 @@ import {
   Download,
   Gauge,
   SlidersHorizontal,
+  Sparkles,
   Upload,
   Waves,
 } from 'lucide-react';
 import { useAppStore } from '@/hooks/use-app-store';
-import type { F0ModelStatus, RealtimeConfig } from '@/types';
+import type { F0Method, F0ModelStatus, RealtimeConfig, RealtimeProfile, TrainingGpuInfo } from '@/types';
 import { tauriApi } from '@/utils/tauri-api';
 import styles from './styles.module.css';
 
@@ -22,6 +23,41 @@ const F0_OPTIONS: Array<{ value: RealtimeConfig['f0Method']; key: string }> = [
   { value: 'crepe', key: 'crepe' },
 ];
 
+type PerformancePresetId = 'cudaHigh' | 'cudaNormal' | 'cpuDebug';
+
+const PERFORMANCE_PRESETS: Record<
+  PerformancePresetId,
+  Partial<RealtimeConfig>
+> = {
+  cudaHigh: {
+    f0Method: 'rmvpe',
+    chunkSize: 2048,
+    bufferMs: 250,
+    crossfadeMs: 8,
+    extraInferenceMs: 1400,
+    indexRate: 0.5,
+    rmsMixRate: 0.25,
+  },
+  cudaNormal: {
+    f0Method: 'fcpe',
+    chunkSize: 3072,
+    bufferMs: 400,
+    crossfadeMs: 10,
+    extraInferenceMs: 1000,
+    indexRate: 0.35,
+    rmsMixRate: 0.2,
+  },
+  cpuDebug: {
+    f0Method: 'fcpe',
+    chunkSize: 6144,
+    bufferMs: 900,
+    crossfadeMs: 18,
+    extraInferenceMs: 700,
+    indexRate: 0.0,
+    rmsMixRate: 0.15,
+  },
+};
+
 export const RealtimeSettings = memo(function RealtimeSettings() {
   const { t } = useTranslation();
   const cfg = useAppStore((s) => s.realtimeConfig);
@@ -30,6 +66,8 @@ export const RealtimeSettings = memo(function RealtimeSettings() {
   const engineStatus = useAppStore((s) => s.engineStatus);
   const running = engineStatus === 'Running' || engineStatus === 'Starting';
   const [f0Status, setF0Status] = useState<F0ModelStatus | null>(null);
+  const [gpuInfo, setGpuInfo] = useState<TrainingGpuInfo | null>(null);
+  const profile = useAppStore((s) => s.realtimeProfile);
 
   const refreshF0Status = useCallback(async () => {
     try {
@@ -42,6 +80,31 @@ export const RealtimeSettings = memo(function RealtimeSettings() {
   useEffect(() => {
     void refreshF0Status();
   }, [refreshF0Status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void tauriApi
+      .getTrainingGpu()
+      .then((info) => {
+        if (!cancelled) setGpuInfo(info);
+      })
+      .catch(() => {
+        if (!cancelled) setGpuInfo(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const recommendedPreset = pickRecommendedPreset(gpuInfo);
+
+  const applyPreset = useCallback(
+    (preset: PerformancePresetId) => {
+      const next = PERFORMANCE_PRESETS[preset];
+      patch(next);
+    },
+    [patch],
+  );
 
   const handleImportRmvpe = useCallback(async () => {
     const picked = await openDialog({
@@ -258,6 +321,21 @@ export const RealtimeSettings = memo(function RealtimeSettings() {
             <p>{t('realtime.performanceDesc')}</p>
           </div>
         </div>
+        <div className={styles.presetRow} aria-label={t('realtime.presets')}>
+          {(Object.keys(PERFORMANCE_PRESETS) as PerformancePresetId[]).map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              className={styles.presetBtn}
+              data-recommended={preset === recommendedPreset || undefined}
+              disabled={running}
+              onClick={() => applyPreset(preset)}
+            >
+              {preset === recommendedPreset ? <Sparkles /> : null}
+              {t(`realtime.preset.${preset}`)}
+            </button>
+          ))}
+        </div>
         <SettingSlider
           label={t('realtime.chunkSize')}
           hint={t('realtime.chunkSizeHint')}
@@ -316,6 +394,17 @@ export const RealtimeSettings = memo(function RealtimeSettings() {
         />
       </div>
 
+      <div className={styles.profileGroup}>
+        <div className={styles.groupHead}>
+          <Gauge />
+          <div>
+            <h3>{t('realtime.profileTitle')}</h3>
+            <p>{t('realtime.profileDesc')}</p>
+          </div>
+        </div>
+        <ProfileGrid profile={profile} />
+      </div>
+
       <div className={styles.notice}>
         <Gauge />
         <span>{t('realtime.restartNotice')}</span>
@@ -323,6 +412,45 @@ export const RealtimeSettings = memo(function RealtimeSettings() {
     </div>
   );
 });
+
+function ProfileGrid({ profile }: { profile: RealtimeProfile | null }) {
+  const { t } = useTranslation();
+  const items: Array<[string, number | undefined]> = [
+    [t('realtime.profile.total'), profile?.totalMs],
+    [t('realtime.profile.contentvec'), profile?.contentvecMs],
+    [t('realtime.profile.f0'), profile?.f0Ms],
+    [t('realtime.profile.generator'), profile?.generatorMs],
+    [t('realtime.profile.faiss'), profile?.faissMs],
+    [t('realtime.profile.resample'), profile?.inputResampleMs],
+    [t('realtime.profile.rustDsp'), profile?.rustDspMs],
+    [t('realtime.profile.rustSend'), profile?.rustSendMs],
+    [t('realtime.profile.rustOutput'), profile?.rustOutputMs],
+    [t('realtime.profile.sola'), profile?.solaMs],
+    [t('realtime.profile.post'), profile?.postMs],
+  ];
+  const bottleneck = pickBottleneck(items);
+  return (
+    <div className={styles.profileGrid}>
+      <div className={styles.profileMeta}>
+        <span>{profile?.mode ?? '-'}</span>
+        <span>{profile?.transport ?? '-'}</span>
+        <span>{profile?.device ?? '-'}</span>
+        <span>{formatF0(profile?.f0Method)}</span>
+        <span>
+          {bottleneck
+            ? t('realtime.profile.bottleneck', { name: bottleneck[0] })
+            : t('realtime.profile.waiting')}
+        </span>
+      </div>
+      {items.map(([label, value]) => (
+        <div key={label} className={styles.profileItem}>
+          <span>{label}</span>
+          <strong>{formatMs(value)}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 interface SettingSliderProps {
   label: string;
@@ -367,4 +495,39 @@ function SettingSlider({
       <span className={styles.value}>{format(value)}</span>
     </label>
   );
+}
+
+function pickRecommendedPreset(info: TrainingGpuInfo | null): PerformancePresetId {
+  if (!info?.available || info.backend !== 'cuda') return 'cpuDebug';
+  const name = info.name.toLowerCase();
+  if (
+    /\b(4090|4080|5090|5080|3090|3080|6000|a6000|a5000|a100|h100)\b/.test(name)
+  ) {
+    return 'cudaHigh';
+  }
+  return 'cudaNormal';
+}
+
+function formatMs(value: number | undefined): string {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '-';
+  return `${value.toFixed(value >= 100 ? 0 : 1)} ms`;
+}
+
+function formatF0(method: string | undefined): F0Method | '-' {
+  if (method === 'rmvpe' || method === 'fcpe' || method === 'crepe') return method;
+  return '-';
+}
+
+function pickBottleneck(
+  items: Array<[string, number | undefined]>,
+): [string, number] | null {
+  const candidates = items.filter(
+    ([label, value]) =>
+      label !== '总耗时' &&
+      label !== 'Total' &&
+      typeof value === 'number' &&
+      Number.isFinite(value),
+  ) as Array<[string, number]>;
+  if (candidates.length === 0) return null;
+  return candidates.reduce((best, item) => (item[1] > best[1] ? item : best));
 }

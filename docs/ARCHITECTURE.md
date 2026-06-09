@@ -20,16 +20,17 @@
 │   │   ├─ output     cpal Output Stream（spk 线程）│
 │   │   ├─ ring       SPSC 环形缓冲                 │
 │   │   └─ engine     编排 + tokio 任务             │
-│   ├─ ipc/ws_client  连接 sidecar                  │
+│   ├─ ipc/           WebSocket 控制 + SHM PCM      │
 │   └─ sidecar/       Python 子进程生命周期         │
 └──────────┬───────────────────────────────────────┘
-           │ ws://127.0.0.1:8765/stream
+           │ ws://127.0.0.1:8765/stream + mmap PCM ring
            │  - text JSON 控制帧
-           │  - binary f32 PCM 数据帧
+           │  - shared-memory f32 PCM ring
+           │  - WebSocket binary PCM fallback
            ▼
 ┌──────────────────────────────────────────────────┐
 │  Python sidecar (FastAPI + uvicorn)               │
-│   ├─ server.py      WebSocket / Health            │
+│   ├─ server.py      WebSocket / Health / Profile  │
 │   ├─ pipeline.py    入口流水线                    │
 │   ├─ feature_extract  HuBERT/ContentVec           │
 │   ├─ f0_extract     RMVPE / FCPE / Crepe          │
@@ -46,8 +47,8 @@
 | Main | Tauri runtime | UI / IPC / 命令分发 |
 | Audio Capture | cpal callback | 把麦克风样本 push 进 SPSC ring |
 | Audio Output | cpal callback | 从 SPSC ring pop 样本写入 VB-Cable |
-| Tokio Send | tokio task | 从 mic ring 拉 chunk → WS send |
-| Tokio Recv | tokio task | 从 WS recv → push 到 out ring |
+| Tokio Send | tokio task | 从 mic ring 拉 chunk → 写 SHM input ring → WS text 唤醒 |
+| Tokio Recv | tokio task | 读 SHM output ring → push 到 out ring；必要时接收 WS binary fallback |
 | Python | sidecar 进程 | 阻塞推理（与本进程隔离，绕过 GIL） |
 
 ## 3. 关键决策
@@ -64,6 +65,7 @@ ContentVec/RMVPE 算子在 TensorRT 上有强制 CPU 回退，反而比 PyTorch 
 - 进程级隔离：Python 推理崩溃不影响音频线程，前端可立刻重连
 - 安装包 + 启动时间：Tauri ~5MB shell，比 Electron 小一个数量级
 - 后续若 ONNX 路径成熟，可直接把 sidecar 替换为 Rust ONNX，IPC 协议不变
+- IPC 边界保持在 `ipc/`；PCM 优先走 shared-memory ring，控制、profile、回退仍走 WebSocket
 
 ### 为什么要 SPSC 环形缓冲，不直接 channel？
 
@@ -77,13 +79,42 @@ F0 提取、生成器推理、SOLA 拼接和输出缓冲决定，块大小只是
 4096 会让 Python sidecar 拿到更稳定的推理块，减少 WebSocket 调用频率和短块拼接抖动。
 如果 GPU 足够快，可以把命令层的 `StartConfig.chunk_size` 调到 2048 或 1024 做低延迟实验。
 
-## 4. 错误处理
+## 4. 实时性能观测
+
+sidecar 每 0.5 秒发送一次 `profile` 文本帧，Rust 端合并本地音频链路耗时后暴露给前端：
+
+- Rust DSP：降噪、VAD、preroll 处理。
+- Send：Rust -> Python 的音频帧发送耗时。
+- Output write：Python 返回音频写入输出 ring 的耗时。
+- ContentVec / F0 / Generator / Faiss：RVC 模型链路。
+- SOLA / Post：块拼接和后处理。
+
+前端会自动标出当前最大耗时项。这个设计是为了避免盲目优化：先看瓶颈，再决定是调 F0、减上下文、换档位，还是继续改 IPC。
+
+## 5. Shared-Memory PCM
+
+当前实时 PCM 优先走文件映射 shared-memory ring：
+
+```text
+Rust capture -> shared input ring -> Python sidecar
+Python output -> shared output ring -> Rust output
+control/profile 仍走 WebSocket 或 HTTP
+```
+
+Rust 在启动实时引擎时创建两块临时 mmap 文件，并通过 `init.shm` 发给 sidecar。
+Python 用标准库 `mmap` 打开同一文件。每个 ring 使用两个 u64 单调序号：
+`write_seq` 和 `read_seq`，数据区是连续 `float32` 样本。
+
+如果 mmap 创建、打开或协商失败，sidecar 返回 `use_shm=false`，Rust 自动回退 WebSocket binary PCM。
+这样保留了 MVP 稳定性，同时把热路径从 WebSocket 大二进制帧迁到了共享内存。
+
+## 6. 错误处理
 
 - Rust 侧统一 `AppError`（thiserror），通过 Tauri 命令返回字符串给前端
 - Python 侧异常通过 `{"type":"error","message":...}` 文本帧反向通知
 - WebSocket 断开会让两个 tokio 任务自然 break，前端通过 `engineStatus` 轮询发现
 
-## 5. 状态切换
+## 7. 状态切换
 
 ```
        start_engine
