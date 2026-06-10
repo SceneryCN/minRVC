@@ -60,8 +60,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Python sidecar deps (CPU torch)
+        env:
+          PYTHONUTF8: "1"
         run: |
-          # fairseq==0.12.2 依赖 omegaconf<2.1，其旧版 wheel 元数据会被 pip>=24.1 拒绝
+          # fairseq==0.12.2 pins omegaconf<2.1; pip>=24.1 rejects its wheel metadata
           python -m pip install "pip<24.1"
           pip install -r sidecar/requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
         shell: bash
