@@ -61,7 +61,8 @@ jobs:
 
       - name: Install Python sidecar deps (CPU torch)
         run: |
-          python -m pip install --upgrade pip
+          # fairseq==0.12.2 依赖 omegaconf<2.1，其旧版 wheel 元数据会被 pip>=24.1 拒绝
+          python -m pip install "pip<24.1"
           pip install -r sidecar/requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
         shell: bash
 

@@ -13,13 +13,13 @@ Mic -> Fuck RVC (Rust audio + DSP + Python RVC) -> 声卡 / 虚拟通道 -> OBS 
 
 ## 界面预览
 
-| 实时变声 | 素材处理 |
+| 图 1 | 图 2 |
 |---|---|
-| ![实时变声](docs/screenshots/realtime-voice.png) | ![素材处理](docs/screenshots/asset-processing.png) |
+| ![图 1](docs/screenshots/realtime-voice.png) | ![图 2](docs/screenshots/asset-processing.png) |
 
-| 模型训练 | 帮助与模型指南 |
+| 图 3 | 图 4 |
 |---|---|
-| ![模型训练](docs/screenshots/model-training.png) | ![帮助与模型指南](docs/screenshots/help-guide.png) |
+| ![图 3](docs/screenshots/model-training.png) | ![图 4](docs/screenshots/help-guide.png) |
 
 ## 当前功能
 
@@ -83,6 +83,7 @@ pnpm install
 cd sidecar
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install "pip<24.1"
 pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
 
 # 可选：专业人声分离模型后端（RoFormer / MDX23C）

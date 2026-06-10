@@ -3,9 +3,13 @@
 #
 # Python 版本：必须 3.10 或 3.11（fairseq 在 3.12+ 上无法编译）
 #
+# pip 版本：必须 <24.1（fairseq 依赖的 omegaconf<2.1 元数据与 pip>=24.1 不兼容）
+#
 # 安装命令（GPU，CUDA 12.1）：
+#   pip install "pip<24.1"
 #   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
 # 安装命令（CPU-only，仅调试）：
+#   pip install "pip<24.1"
 #   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 # =============================================================================
 
