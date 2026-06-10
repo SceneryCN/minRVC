@@ -108,6 +108,14 @@ def main() -> None:
     ap.add_argument("--onedir", action="store_true", help="输出目录形式（启动更快）")
     args = ap.parse_args()
 
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
+
     if not ENTRY.exists():
         print(f"找不到入口 {ENTRY}", file=sys.stderr)
         sys.exit(2)

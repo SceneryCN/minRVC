@@ -92,6 +92,18 @@ WEIGHTS: tuple[WeightFile, ...] = (
 
 # ---------- 工具函数 ----------
 
+def _configure_stdio() -> None:
+    """Windows CI consoles often default to cp1252; force UTF-8 for log output."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
+
+
 def _data_dir() -> Path:
     """与 sidecar/rvc_engine/config.py 的 _data_dir() 严格一致。"""
     if sys.platform.startswith("win"):
@@ -257,6 +269,8 @@ def main(argv: List[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    _configure_stdio()
+
     if args.clean and VENDOR_DIR.exists():
         print(f"清理 {VENDOR_DIR}")
         shutil.rmtree(VENDOR_DIR)
@@ -265,7 +279,7 @@ def main(argv: List[str] | None = None) -> int:
         step_vendor_sources(force=args.force)
         step_download_weights(force=args.force, skip_weights=args.skip_weights)
     except Exception as e:  # noqa: BLE001
-        print(f"\n失败：{e}", file=sys.stderr)
+        print(f"\nFailed: {e}", file=sys.stderr)
         return 1
 
     print(

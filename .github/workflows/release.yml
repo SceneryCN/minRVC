@@ -26,6 +26,8 @@ jobs:
             artifact: fuck-rvc-macos-arm64
 
     runs-on: ${{ matrix.platform }}
+    env:
+      PYTHONUTF8: "1"
 
     steps:
       - uses: actions/checkout@v4
@@ -71,6 +73,7 @@ jobs:
       - name: Download RVC vendor sources
         run: python -m scripts.setup_rvc --skip-weights
         working-directory: sidecar
+        shell: bash
 
       - name: Build sidecar (PyInstaller)
         run: pnpm sidecar:build
