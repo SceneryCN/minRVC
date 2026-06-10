@@ -122,7 +122,8 @@ C:\Program Files\声变\
 矩阵：
 
 - `windows-latest` → `x86_64-pc-windows-msvc` → `.msi` + `.exe (NSIS)`
-- `macos-14` (Apple Silicon) → `aarch64-apple-darwin` → `.dmg` + `.app`
+- `macos-15-intel` (Intel) → `x86_64-apple-darwin` → `.dmg`
+- `macos-15` (Apple Silicon) → `aarch64-apple-darwin` → `.dmg` + `.app`
 
 ### B.2 触发一次
 
