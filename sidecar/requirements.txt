@@ -19,8 +19,11 @@ websockets==13.1
 pydantic==2.9.2
 
 # ---------- Inference core ----------
-torch==2.4.1
-torchaudio==2.4.1
+# PyTorch stopped publishing macOS Intel (x86_64) wheels after 2.2.x.
+torch==2.4.1; platform_machine != "x86_64" or sys_platform != "darwin"
+torch==2.2.2; platform_machine == "x86_64" and sys_platform == "darwin"
+torchaudio==2.4.1; platform_machine != "x86_64" or sys_platform != "darwin"
+torchaudio==2.2.2; platform_machine == "x86_64" and sys_platform == "darwin"
 numpy==1.26.4
 scipy==1.13.1
 

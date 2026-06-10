@@ -50,6 +50,26 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          # Isolate cache per runner + target; avoids stale objc2 clang paths after runner/Xcode upgrades
+          shared-key: ${{ matrix.platform }}-${{ matrix.target }}
+
+      - name: Configure Xcode toolchain (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          if [ -d /Applications/Xcode_16.app ]; then
+            sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
+          else
+            sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          fi
+          echo "DEVELOPER_DIR=$(xcode-select -p)" >> "$GITHUB_ENV"
+          echo "SDKROOT=$(xcrun --show-sdk-path)" >> "$GITHUB_ENV"
+          # rust-cache can restore build-script outputs that pin an old Xcode clang_rt path
+          find src-tauri/target -type d -name 'objc2-exception-helper-*' -exec rm -rf {} + 2>/dev/null || true
+
+      - name: Clean Rust target (macOS)
+        if: runner.os == 'macOS'
+        working-directory: src-tauri
+        run: cargo clean
 
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
