@@ -186,4 +186,34 @@ export interface F0ModelStatus {
   rmvpeDownloadUrl: string;
 }
 
+export interface PretrainedWeightInfo {
+  id: string;
+  kind: 'G' | 'D' | string;
+  version: 'v1' | 'v2' | string;
+  sampleRate: number;
+  fileName: string;
+  url: string;
+}
+
+export interface BaseModelStatus {
+  hubertInstalled: boolean;
+  hubertPath: string | null;
+  hubertDownloadUrl: string;
+  rmvpeInstalled: boolean;
+  rmvpePath: string | null;
+  rmvpeDownloadUrl: string;
+  installedVoiceCount: number;
+  totalVoiceCount: number;
+  modelsDir: string;
+  pretrainedWeights: PretrainedWeightInfo[];
+}
+
+export interface ImportTrainingOutputPayload {
+  pth_path: string;
+  index_path?: string | null;
+  voice_name: string;
+  sample_rate?: number;
+  model_version?: 'v1' | 'v2';
+}
+
 export type AppTabId = 'voice' | 'lab' | 'train' | 'help';

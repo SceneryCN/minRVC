@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import {
   CircleCheck,
   Cpu,
+  Download,
   ExternalLink,
   FolderOpen,
   Loader2,
@@ -14,8 +15,10 @@ import {
 } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { open as openShell } from '@tauri-apps/plugin-shell';
+import { useAppStore } from '@/hooks/use-app-store';
 import { useTraining } from '@/hooks/use-training';
-import type { F0Method } from '@/types';
+import type { F0Method, PretrainedWeightInfo } from '@/types';
+import { tauriApi } from '@/utils/tauri-api';
 import styles from './styles.module.css';
 
 const SAMPLE_RATES = [32000, 40000, 48000] as const;
@@ -28,6 +31,8 @@ const RVC_WEBUI_RELEASES_URL =
 export const TrainingPanel = memo(function TrainingPanel() {
   const { t } = useTranslation();
   const { job, gpuInfo, gpuLoading, refreshGpu, start, cancel } = useTraining();
+  const setVoices = useAppStore((s) => s.setVoices);
+  const setSelectedVoice = useAppStore((s) => s.setSelectedVoice);
   const [datasetDir, setDatasetDir] = useState<string | null>(null);
   const [trainingPackageDir, setTrainingPackageDir] = useState<string | null>(null);
   const [voiceName, setVoiceName] = useState('');
@@ -45,7 +50,9 @@ export const TrainingPanel = memo(function TrainingPanel() {
   const [pretrainedD, setPretrainedD] = useState<string | null>(null);
   const [useGpu, setUseGpu] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [importingOutput, setImportingOutput] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pretrainedCatalog, setPretrainedCatalog] = useState<PretrainedWeightInfo[]>([]);
 
   const isRunning = job?.state === 'pending' || job?.state === 'running';
   const isDone = job?.state === 'done';
@@ -73,6 +80,30 @@ export const TrainingPanel = memo(function TrainingPanel() {
   useEffect(() => {
     if (gpuInfo && !gpuInfo.available) setUseGpu(false);
   }, [gpuInfo]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void tauriApi
+      .getBaseModelStatus()
+      .then((status) => {
+        if (!cancelled) setPretrainedCatalog(status.pretrainedWeights);
+      })
+      .catch(() => {
+        if (!cancelled) setPretrainedCatalog([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const recommendedG = pickPretrained(pretrainedCatalog, 'G', modelVersion, sampleRate);
+  const recommendedD = pickPretrained(pretrainedCatalog, 'D', modelVersion, sampleRate);
+  const gMismatch = pretrainedG
+    ? !pretrainedG.split(/[\\/]/).pop()?.includes(recommendedG?.fileName ?? '')
+    : false;
+  const dMismatch = pretrainedD
+    ? !pretrainedD.split(/[\\/]/).pop()?.includes(recommendedD?.fileName ?? '')
+    : false;
 
   const handlePickDataset = useCallback(async () => {
     setError(null);
@@ -128,6 +159,27 @@ export const TrainingPanel = memo(function TrainingPanel() {
       setError(String(e));
     }
   }, []);
+
+  const handleImportTrainingOutput = useCallback(async () => {
+    if (!job?.pthPath) return;
+    setImportingOutput(true);
+    setError(null);
+    try {
+      const imported = await tauriApi.importTrainingOutput({
+        pth_path: job.pthPath,
+        index_path: job.indexPath,
+        voice_name: voiceName.trim() || 'trained_voice',
+        sample_rate: sampleRate,
+        model_version: modelVersion,
+      });
+      setVoices(await tauriApi.listVoiceModels());
+      setSelectedVoice(imported.id);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setImportingOutput(false);
+    }
+  }, [job, modelVersion, sampleRate, setSelectedVoice, setVoices, voiceName]);
 
   const handleStart = useCallback(async () => {
     if (!datasetDir || !voiceName.trim()) return;
@@ -402,6 +454,18 @@ export const TrainingPanel = memo(function TrainingPanel() {
                 {pretrainedG ? pretrainedG.split('/').pop() : t('training.pickPretrainedG')}
               </span>
             </button>
+            {recommendedG && (
+              <WeightHint
+                item={recommendedG}
+                mismatch={gMismatch}
+                mismatchText={t('training.pretrainedMismatch')}
+                recommendedText={t('training.recommendedWeight', {
+                  file: recommendedG.fileName,
+                })}
+                downloadText={t('training.downloadRecommended')}
+                onOpen={handleOpenDownload}
+              />
+            )}
           </label>
 
           <label className={styles.field}>
@@ -417,6 +481,18 @@ export const TrainingPanel = memo(function TrainingPanel() {
                 {pretrainedD ? pretrainedD.split('/').pop() : t('training.pickPretrainedD')}
               </span>
             </button>
+            {recommendedD && (
+              <WeightHint
+                item={recommendedD}
+                mismatch={dMismatch}
+                mismatchText={t('training.pretrainedMismatch')}
+                recommendedText={t('training.recommendedWeight', {
+                  file: recommendedD.fileName,
+                })}
+                downloadText={t('training.downloadRecommended')}
+                onOpen={handleOpenDownload}
+              />
+            )}
           </label>
 
           <label className={styles.checkField}>
@@ -524,12 +600,70 @@ export const TrainingPanel = memo(function TrainingPanel() {
             </div>
           )}
 
+          {isDone && job.pthPath && (
+            <div className={styles.importOutputBox}>
+              <div>
+                <strong>{t('training.importOutputTitle')}</strong>
+                <span>{t('training.importOutputDesc')}</span>
+              </div>
+              <button
+                type="button"
+                className={styles.primaryBtn}
+                onClick={() => void handleImportTrainingOutput()}
+                disabled={importingOutput}
+              >
+                {importingOutput ? <Loader2 className={styles.spin} /> : <CircleCheck />}
+                {t('training.importOutput')}
+              </button>
+            </div>
+          )}
+
           {(isFailed || error) && <p className={styles.error}>{job.error ?? error}</p>}
         </div>
       )}
     </div>
   );
 });
+
+function pickPretrained(
+  catalog: PretrainedWeightInfo[],
+  kind: 'G' | 'D',
+  version: 'v1' | 'v2',
+  sampleRate: number,
+) {
+  return catalog.find(
+    (item) =>
+      item.kind.toUpperCase() === kind &&
+      item.version === version &&
+      item.sampleRate === sampleRate,
+  );
+}
+
+function WeightHint({
+  item,
+  recommendedText,
+  mismatch,
+  mismatchText,
+  downloadText,
+  onOpen,
+}: {
+  item: PretrainedWeightInfo;
+  recommendedText: string;
+  mismatch: boolean;
+  mismatchText: string;
+  downloadText: string;
+  onOpen: (url: string) => Promise<void>;
+}) {
+  return (
+    <div className={styles.weightHint} data-mismatch={mismatch || undefined}>
+      <span>{mismatch ? mismatchText : recommendedText}</span>
+      <button type="button" onClick={() => void onOpen(item.url)}>
+        <Download />
+        {downloadText}
+      </button>
+    </div>
+  );
+}
 
 function ResultRow({
   label,

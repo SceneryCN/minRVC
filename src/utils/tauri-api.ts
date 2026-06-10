@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
   AudioDeviceInfo,
   AudioMeter,
+  BaseModelStatus,
   DspConfig,
   DspStatus,
   EngineStatusPayload,
@@ -12,6 +13,7 @@ import type {
   TrainingGpuInfo,
   TrainingStatus,
   ImportVoiceModelPayload,
+  ImportTrainingOutputPayload,
   RealtimeConfig,
   VoiceModelInfo,
 } from '@/types';
@@ -35,8 +37,13 @@ export const tauriApi = {
   listVoiceModels: () => invoke<VoiceModelInfo[]>('list_voice_models'),
   importVoiceModel: (payload: ImportVoiceModelPayload) =>
     invoke<VoiceModelInfo>('import_voice_model', { payload }),
+  importTrainingOutput: (payload: ImportTrainingOutputPayload) =>
+    invoke<VoiceModelInfo>('import_training_output', { payload }),
   downloadPresetModel: (voiceId: string) =>
     invoke<VoiceModelInfo>('download_preset_model', { payload: { voice_id: voiceId } }),
+  getBaseModelStatus: () => invoke<BaseModelStatus>('get_base_model_status'),
+  importBaseModel: (kind: 'hubert' | 'contentvec' | 'rmvpe', path: string) =>
+    invoke<BaseModelStatus>('import_base_model', { payload: { kind, path } }),
   getF0ModelStatus: () => invoke<F0ModelStatus>('get_f0_model_status'),
   importF0Model: (kind: 'rmvpe', path: string) =>
     invoke<F0ModelStatus>('import_f0_model', { payload: { kind, path } }),

@@ -5,6 +5,7 @@ import {
   Activity,
   AudioWaveform,
   CircleCheck,
+  Download,
   Mic2,
   Mic,
   RefreshCw,
@@ -36,7 +37,7 @@ import { useAudioDevices } from '@/hooks/use-audio-devices';
 import { useDsp } from '@/hooks/use-dsp';
 import { useEngine } from '@/hooks/use-engine';
 import { useVoiceModels } from '@/hooks/use-voice-models';
-import type { VoiceModelInfo } from '@/types';
+import type { BaseModelStatus, TrainingGpuInfo, VoiceModelInfo } from '@/types';
 import { tauriApi } from '@/utils/tauri-api';
 import styles from './styles.module.css';
 
@@ -50,6 +51,10 @@ export function App() {
   const [modelRefreshState, setModelRefreshState] = useState<
     'idle' | 'loading' | 'done'
   >('idle');
+  const [resourceStatus, setResourceStatus] = useState<BaseModelStatus | null>(null);
+  const [resourceGpu, setResourceGpu] = useState<TrainingGpuInfo | null>(null);
+  const [resourceLoading, setResourceLoading] = useState(true);
+  const [resourceError, setResourceError] = useState<string | null>(null);
 
   const activeTab = useAppStore((s) => s.activeTab);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
@@ -204,6 +209,88 @@ export function App() {
   const showMissingModel =
     !!selectedVoice && !(installedMap.get(selectedVoice) ?? false);
 
+  const refreshResources = useCallback(async () => {
+    setResourceLoading(true);
+    setResourceError(null);
+    try {
+      const status = await tauriApi.getBaseModelStatus();
+      setResourceStatus(status);
+      try {
+        setResourceGpu(await tauriApi.getTrainingGpu());
+      } catch (e) {
+        setResourceGpu(null);
+        setResourceError(e instanceof Error ? e.message : String(e));
+      }
+    } catch (e) {
+      setResourceError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setResourceLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshResources();
+  }, [refreshResources]);
+
+  const handleImportBaseModel = useCallback(
+    async (kind: 'hubert' | 'rmvpe') => {
+      try {
+        const picked = await openDialog({
+          multiple: false,
+          directory: false,
+          filters: [
+            {
+              name: kind === 'hubert' ? 'HuBERT / ContentVec' : 'RMVPE',
+              extensions: kind === 'hubert' ? ['pt', 'pth', 'bin'] : ['pt', 'pth'],
+            },
+          ],
+        });
+        if (typeof picked !== 'string') return;
+        setResourceStatus(await tauriApi.importBaseModel(kind, picked));
+      } catch (e) {
+        useAppStore.getState().setError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [],
+  );
+
+  const resourceIssues = useMemo(() => {
+    const issues: Array<{ key: string; ok: boolean; label: string }> = [];
+    if (resourceStatus) {
+      issues.push({
+        key: 'hubert',
+        ok: resourceStatus.hubertInstalled,
+        label: t('resources.hubert'),
+      });
+      issues.push({
+        key: 'rmvpe',
+        ok: resourceStatus.rmvpeInstalled,
+        label: t('resources.rmvpe'),
+      });
+      issues.push({
+        key: 'voices',
+        ok: resourceStatus.installedVoiceCount > 0,
+        label: t('resources.voices', {
+          count: resourceStatus.installedVoiceCount,
+          total: resourceStatus.totalVoiceCount,
+        }),
+      });
+    }
+    issues.push({
+      key: 'python',
+      ok: !!resourceGpu && !resourceError,
+      label: resourceGpu
+        ? resourceGpu.available
+          ? t('resources.pythonGpu', { name: resourceGpu.name })
+          : t('resources.pythonCpu')
+        : t('resources.python'),
+    });
+    return issues;
+  }, [resourceError, resourceGpu, resourceStatus, t]);
+
+  const showResourcePanel =
+    resourceLoading || resourceError || resourceIssues.some((item) => !item.ok);
+
   return (
     <div className={styles.shell}>
       <DspRuntime />
@@ -237,6 +324,48 @@ export function App() {
       </header>
 
       <main className={styles.body}>
+        {showResourcePanel && (
+          <section className={styles.resourcePanel} data-loading={resourceLoading || undefined}>
+            <div className={styles.resourceHead}>
+              <TriangleAlert />
+              <div>
+                <h2>{t('resources.title')}</h2>
+                <p>
+                  {resourceLoading
+                    ? t('resources.checking')
+                    : resourceError
+                      ? t('resources.sidecarError', { message: resourceError })
+                      : t('resources.desc')}
+                </p>
+              </div>
+            </div>
+            <div className={styles.resourceList}>
+              {resourceIssues.map((item) => (
+                <span key={item.key} data-ok={item.ok || undefined}>
+                  {item.ok ? <CircleCheck /> : <TriangleAlert />}
+                  {item.label}
+                </span>
+              ))}
+            </div>
+            <div className={styles.resourceActions}>
+              <button type="button" onClick={() => void refreshResources()}>
+                <RefreshCw />
+                {t('resources.recheck')}
+              </button>
+              <button type="button" onClick={() => void handleImportBaseModel('hubert')}>
+                <Download />
+                {t('resources.importHubert')}
+              </button>
+              <button type="button" onClick={() => void handleImportBaseModel('rmvpe')}>
+                <Download />
+                {t('resources.importRmvpe')}
+              </button>
+              <button type="button" onClick={() => setActiveTab('help')}>
+                {t('resources.openHelp')}
+              </button>
+            </div>
+          </section>
+        )}
         {activeTab === 'voice' ? (
           <>
             <section className={styles.section}>

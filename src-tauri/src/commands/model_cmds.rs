@@ -37,6 +37,10 @@ fn rmvpe_path() -> AppResult<PathBuf> {
     Ok(models_dir()?.join("rmvpe").join("rmvpe.pt"))
 }
 
+fn hubert_path() -> AppResult<PathBuf> {
+    Ok(models_dir()?.join("hubert").join("hubert_base.pt"))
+}
+
 fn manifest_path() -> AppResult<PathBuf> {
     Ok(models_dir()?.join("manifest.json"))
 }
@@ -180,6 +184,34 @@ pub fn import_voice_model(payload: ImportPayload) -> AppResult<VoiceModelInfo> {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ImportTrainingOutputPayload {
+    pub pth_path: String,
+    pub index_path: Option<String>,
+    pub voice_name: String,
+    pub sample_rate: Option<u32>,
+    pub model_version: Option<String>,
+}
+
+#[tauri::command]
+pub fn import_training_output(payload: ImportTrainingOutputPayload) -> AppResult<VoiceModelInfo> {
+    let voice_id = unique_voice_id(&sanitize_voice_id(&payload.voice_name))?;
+    import_voice_model(ImportPayload {
+        voice_id,
+        pth_path: payload.pth_path,
+        index_path: payload.index_path,
+        display_name: Some(payload.voice_name),
+        description: Some(format!(
+            "本机训练生成的 RVC {} 音色",
+            payload.model_version.unwrap_or_else(|| "v2".into())
+        )),
+        category: Some("custom".into()),
+        gender: Some("unknown".into()),
+        sample_rate: payload.sample_rate,
+        recommended_pitch: Some(0),
+    })
+}
+
+#[derive(Debug, Deserialize)]
 pub struct DownloadPayload {
     pub voice_id: String,
 }
@@ -219,6 +251,32 @@ pub struct F0ModelStatus {
     pub rmvpe_download_url: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BaseModelStatus {
+    pub hubert_installed: bool,
+    pub hubert_path: Option<String>,
+    pub hubert_download_url: String,
+    pub rmvpe_installed: bool,
+    pub rmvpe_path: Option<String>,
+    pub rmvpe_download_url: String,
+    pub installed_voice_count: usize,
+    pub total_voice_count: usize,
+    pub models_dir: String,
+    pub pretrained_weights: Vec<PretrainedWeightInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PretrainedWeightInfo {
+    pub id: String,
+    pub kind: String,
+    pub version: String,
+    pub sample_rate: u32,
+    pub file_name: String,
+    pub url: String,
+}
+
 #[tauri::command]
 pub fn get_f0_model_status() -> AppResult<F0ModelStatus> {
     let path = rmvpe_path()?;
@@ -227,6 +285,29 @@ pub fn get_f0_model_status() -> AppResult<F0ModelStatus> {
         rmvpe_path: path.exists().then(|| path.to_string_lossy().into_owned()),
         rmvpe_download_url: "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt"
             .into(),
+    })
+}
+
+#[tauri::command]
+pub fn get_base_model_status() -> AppResult<BaseModelStatus> {
+    let hubert = hubert_path()?;
+    let rmvpe = rmvpe_path()?;
+    let voices = list_voice_models()?;
+    let models = models_dir()?;
+    Ok(BaseModelStatus {
+        hubert_installed: hubert.exists(),
+        hubert_path: hubert.exists().then(|| hubert.to_string_lossy().into_owned()),
+        hubert_download_url:
+            "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/hubert_base.pt"
+                .into(),
+        rmvpe_installed: rmvpe.exists(),
+        rmvpe_path: rmvpe.exists().then(|| rmvpe.to_string_lossy().into_owned()),
+        rmvpe_download_url:
+            "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt".into(),
+        installed_voice_count: voices.iter().filter(|v| v.installed).count(),
+        total_voice_count: voices.len(),
+        models_dir: models.to_string_lossy().into_owned(),
+        pretrained_weights: pretrained_weight_catalog(),
     })
 }
 
@@ -257,6 +338,110 @@ pub fn import_f0_model(payload: ImportF0ModelPayload) -> AppResult<F0ModelStatus
     }
     std::fs::copy(src, &dst)?;
     get_f0_model_status()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImportBaseModelPayload {
+    pub kind: String,
+    pub path: String,
+}
+
+#[tauri::command]
+pub fn import_base_model(payload: ImportBaseModelPayload) -> AppResult<BaseModelStatus> {
+    let src = Path::new(&payload.path);
+    if !src.exists() {
+        return Err(AppError::Internal(format!(
+            "基础模型文件不存在: {}",
+            payload.path
+        )));
+    }
+    let dst = match payload.kind.as_str() {
+        "hubert" | "contentvec" => hubert_path()?,
+        "rmvpe" => rmvpe_path()?,
+        other => {
+            return Err(AppError::Internal(format!(
+                "暂不支持的基础模型类型: {other}"
+            )));
+        }
+    };
+    if let Some(parent) = dst.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::copy(src, dst)?;
+    get_base_model_status()
+}
+
+fn sanitize_voice_id(name: &str) -> String {
+    let safe: String = name
+        .trim()
+        .chars()
+        .map(|ch| {
+            if ch.is_alphanumeric() || ch == '-' || ch == '_' {
+                ch.to_lowercase().next().unwrap_or(ch)
+            } else if ch.is_whitespace() {
+                '_'
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let compact = safe
+        .split('_')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("_");
+    if compact.is_empty() {
+        "trained_voice".into()
+    } else {
+        compact
+    }
+}
+
+fn unique_voice_id(base: &str) -> AppResult<String> {
+    let manifest = load_manifest()?;
+    let voices_dir = models_dir()?.join("voices");
+    for idx in 0..10_000 {
+        let candidate = if idx == 0 {
+            base.to_string()
+        } else {
+            format!("{base}_{idx}")
+        };
+        let exists_in_manifest = manifest.voices.iter().any(|v| v.id == candidate);
+        let exists_on_disk = voices_dir.join(&candidate).exists();
+        if !exists_in_manifest && !exists_on_disk {
+            return Ok(candidate);
+        }
+    }
+    Err(AppError::Internal(format!(
+        "无法为训练产物生成唯一音色 ID: {base}"
+    )))
+}
+
+fn pretrained_weight_catalog() -> Vec<PretrainedWeightInfo> {
+    let mut out = Vec::new();
+    let base = "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main";
+    for version in ["v2", "v1"] {
+        for sample_rate in [32_000_u32, 40_000, 48_000] {
+            let sr = sample_rate / 1000;
+            for kind in ["G", "D"] {
+                let file_name = format!("f0{kind}{sr}k.pth");
+                let dir = if version == "v2" {
+                    "pretrained_v2"
+                } else {
+                    "pretrained"
+                };
+                out.push(PretrainedWeightInfo {
+                    id: format!("{version}-{kind}-{sample_rate}"),
+                    kind: kind.into(),
+                    version: version.into(),
+                    sample_rate,
+                    file_name: file_name.clone(),
+                    url: format!("{base}/{dir}/{file_name}"),
+                });
+            }
+        }
+    }
+    out
 }
 
 /// 5 个预设音色的初始 manifest。`source_url` 留空，第一版用「用户手动导入」。
