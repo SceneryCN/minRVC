@@ -2,9 +2,17 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag (e.g. v0.1.0-beta.1). Fill this when running manually to create a GitHub Release.'
+        required: false
+        type: string
   push:
     tags:
       - 'v*'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   build:
@@ -120,7 +128,13 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: |
+      !cancelled() &&
+      needs.build.result == 'success' &&
+      (
+        startsWith(github.ref, 'refs/tags/v') ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
+      )
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -128,9 +142,25 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          merge-multiple: true
+
+      - name: Verify release assets
+        shell: bash
+        run: |
+          shopt -s globstar nullglob
+          files=(dist/**/*.{msi,exe,dmg})
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No .msi/.exe/.dmg files found under dist/"
+            find dist -type f 2>/dev/null || true
+            exit 1
+          fi
+          echo "Release assets:"
+          printf '  %s\n' "${files[@]}"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
           files: |
             dist/**/*.msi
             dist/**/*.exe

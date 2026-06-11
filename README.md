@@ -240,8 +240,8 @@ G / D 权重不是最终音色模型。它们是训练用的预训练生成器 /
 
 GitHub Actions 已配置自动打包：
 
-- 手动运行 `Release` workflow：生成 Windows / macOS artifacts。
-- 推送 `v*` 标签，例如 `v0.1.0`：自动生成 draft GitHub Release，并上传 Windows `.msi/.exe`、macOS `.dmg`。
+- 手动运行 `Release` workflow：只填 `release_tag`（如 `v0.1.0-beta.1`）才会创建 GitHub Release；不填则只在 Actions Artifacts 里下载。
+- 推送 `v*` 标签，例如 `v0.1.0-beta.1`：自动 build + 创建 draft GitHub Release，并上传 Windows `.msi/.exe`、macOS `.dmg`。
 - CI 只打包程序和 sidecar vendor 源码，不内置 HuBERT / RMVPE / 音色模型等大文件。
 
 ```powershell
