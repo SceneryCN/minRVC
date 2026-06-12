@@ -78,7 +78,7 @@ impl SidecarManager {
             tracing::info!("使用打包的 sidecar: {:?}", path);
             Command::new(path)
         } else {
-            tracing::info!("使用开发模式 sidecar (python -m rvc_engine.server)");
+            tracing::warn!("未找到打包 sidecar，回退到开发模式 (python -m rvc_engine.server)");
             let mut c = Command::new(python_exe());
             c.arg("-m").arg("rvc_engine.server");
             // 设置 cwd 为项目根目录下的 sidecar/
@@ -170,16 +170,65 @@ fn project_root() -> Option<std::path::PathBuf> {
 
 fn locate_sidecar_binary() -> Option<std::path::PathBuf> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-    let candidates = if cfg!(target_os = "windows") {
-        vec!["rvc-sidecar.exe", "binaries/rvc-sidecar.exe"]
-    } else {
-        vec!["rvc-sidecar", "binaries/rvc-sidecar"]
-    };
-    for c in candidates {
-        let p = exe_dir.join(c);
-        if p.exists() {
+
+    // Tauri externalBin 打包后文件名带 target triple，例如 rvc-sidecar-aarch64-apple-darwin
+    if let Some(name) = sidecar_binary_name() {
+        let p = exe_dir.join(name);
+        if p.is_file() {
             return Some(p);
         }
     }
+
+    // 兼容旧命名 / 开发产物
+    let legacy = if cfg!(target_os = "windows") {
+        ["rvc-sidecar.exe", "binaries/rvc-sidecar.exe"]
+    } else {
+        ["rvc-sidecar", "binaries/rvc-sidecar"]
+    };
+    for name in legacy {
+        let p = exe_dir.join(name);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+
+    // 兜底：扫描应用目录下任意 rvc-sidecar* 可执行文件
+    if let Ok(entries) = std::fs::read_dir(&exe_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with("rvc-sidecar") {
+                return Some(path);
+            }
+        }
+    }
+
     None
+}
+
+/// 与 `sidecar/build_sidecar.py` + Tauri `externalBin: binaries/rvc-sidecar` 命名一致。
+fn sidecar_binary_name() -> Option<&'static str> {
+    Some(match () {
+        #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+        () => "rvc-sidecar-x86_64-pc-windows-msvc.exe",
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        () => "rvc-sidecar-aarch64-apple-darwin",
+        #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+        () => "rvc-sidecar-x86_64-apple-darwin",
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        () => "rvc-sidecar-x86_64-unknown-linux-gnu",
+        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        () => "rvc-sidecar-aarch64-unknown-linux-gnu",
+        #[cfg(not(any(
+            all(target_os = "windows", target_arch = "x86_64"),
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "macos", target_arch = "x86_64"),
+            all(target_os = "linux", target_arch = "x86_64"),
+            all(target_os = "linux", target_arch = "aarch64"),
+        )))]
+        () => return None,
+    })
 }

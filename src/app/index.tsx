@@ -277,13 +277,13 @@ export function App() {
       });
     }
     issues.push({
-      key: 'python',
+      key: 'inference',
       ok: !!resourceGpu && !resourceError,
       label: resourceGpu
         ? resourceGpu.available
-          ? t('resources.pythonGpu', { name: resourceGpu.name })
-          : t('resources.pythonCpu')
-        : t('resources.python'),
+          ? t('resources.inferenceGpu', { name: resourceGpu.name })
+          : t('resources.inferenceCpu')
+        : t('resources.inference'),
     });
     return issues;
   }, [resourceError, resourceGpu, resourceStatus, t]);
